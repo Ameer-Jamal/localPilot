@@ -12,7 +12,7 @@ class AutoResizingTextEdit(QTextEdit):
         super().__init__(parent)
         self._min_lines = int(min_lines)
         self._max_lines = int(max_lines)
-        self._pad = 8
+        self._pad = 15
 
         self.setAcceptRichText(False)
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
