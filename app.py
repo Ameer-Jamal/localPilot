@@ -1,17 +1,20 @@
-import json, time
-from markdown_it import MarkdownIt
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar,
-    QApplication, QInputDialog, QLineEdit
-)
-from PySide6.QtWebEngineWidgets import QWebEngineView
-
-from utils import ACTIONS, build_prompt, lang_hint
-from ollama_client import MODEL, TEMP, OLLAMA_URL
+import json
+import string
+import time
 from html import escape
 
 import requests
+from markdown_it import MarkdownIt
+from PySide6.QtCore import QThread, Signal, QTimer
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar,
+    QInputDialog, QLineEdit
+)
+
+from ollama_client import MODEL, TEMP, OLLAMA_URL
+from utils import ACTIONS, lang_hint
 
 HTML_TEMPLATE = """<!doctype html>
 <html><head>
@@ -44,6 +47,7 @@ HTML_TEMPLATE = """<!doctype html>
 
 md = MarkdownIt()
 
+
 class ChatWorker(QThread):
     chunk = Signal(str)
     done = Signal()
@@ -51,21 +55,20 @@ class ChatWorker(QThread):
 
     def __init__(self, messages):
         super().__init__()
-        self._assistant_md = ""  # cumulative assistant markdown for the current turn
-        self.messages = messages  # list[{"role": "...", "content": "..."}]
+        self.messages = messages
 
     def run(self):
         try:
             with requests.post(
-                    OLLAMA_URL.replace("/generate", "/chat"),
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps({
-                        "model": MODEL,
-                        "messages": self.messages,
-                        "options": {"temperature": TEMP},
-                        "stream": True
-                    }),
-                    stream=True, timeout=300
+                OLLAMA_URL.replace("/generate", "/chat"),
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({
+                    "model": MODEL,
+                    "messages": self.messages,
+                    "options": {"temperature": TEMP},
+                    "stream": True
+                }),
+                stream=True, timeout=300
             ) as r:
                 r.raise_for_status()
                 for line in r.iter_lines(decode_unicode=True):
@@ -73,18 +76,19 @@ class ChatWorker(QThread):
                         continue
                     try:
                         obj = json.loads(line)
-                        msg = obj.get("message", {})  # {role, content}
+                        msg = obj.get("message", {})
                         txt = msg.get("content", "") if msg else obj.get("response", "")
                     except json.JSONDecodeError:
                         txt = line
                     if txt:
                         self.chunk.emit(txt)
-        except requests.exceptions.RequestException as e:  # More specific exception handling
+        except requests.exceptions.RequestException as e:
             self.error.emit(f"Network error: {str(e)}")
         except Exception as e:
             self.error.emit(str(e))
         finally:
             self.done.emit()
+
 
 class App(QWidget):
     def __init__(self, code: str, file_name: str):
@@ -95,10 +99,10 @@ class App(QWidget):
         self.code = code
         self.lang = lang_hint(file_name)
 
-        # Conversation state (system prompt pins code context)
+        # Conversation state
         self._build_system_message()
 
-        # Top bar (actions)
+        # Top bar
         top = QHBoxLayout()
         top.addWidget(self._mk_btn("Explain", lambda: self._run_instruction(ACTIONS["explain"])))
         top.addWidget(self._mk_btn("Refactor (diff)", lambda: self._run_instruction(ACTIONS["refactor"])))
@@ -109,14 +113,14 @@ class App(QWidget):
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
         top.addWidget(self.model_lbl)
 
-        # Web view transcript
+        # Web view
         self.view = QWebEngineView()
         self.view.setHtml(HTML_TEMPLATE)
         self._page_ready = False
         self._pending_html = None
         self.view.loadFinished.connect(self._on_page_ready)
 
-        # Chat input row
+        # Input row
         bottom = QHBoxLayout()
         self.input = QLineEdit()
         self.input.setPlaceholderText("Ask a follow-up…  (Enter to send)")
@@ -131,19 +135,19 @@ class App(QWidget):
         self.status = QStatusBar()
         self.status.showMessage("Ready")
 
-        # Root layout
+        # Layout
         root = QVBoxLayout(self)
         root.addLayout(top)
         root.addWidget(self.view, 1)
         root.addLayout(bottom)
         root.addWidget(self.status)
 
-        # Streaming buffer and timers
-        self._render_buf = []     # current assistant chunk buffer
+        # Streaming state
+        self._render_buf = []
         self._html = []
         self._assistant_md = ""
-        self._append_code_context_block()  # builds initial HTML with pinned code
-        self._set_html("".join(self._html))  # now safely buffered until page ready
+        self._append_code_context_block()
+        self._set_html("".join(self._html))
 
         self._render_timer = QTimer(self)
         self._render_timer.setInterval(80)
@@ -153,11 +157,64 @@ class App(QWidget):
         self._start_ts = 0.0
         self._chars = 0
 
-        # Seed transcript
         self._flush_render(force=True)
 
-    # UI helpers
-    def _mk_btn(self, text, handler):
+        # IPC server holder
+        self._server = None
+
+    # ---------- IPC: single-window ----------
+    def listen_ipc(self, socket_name):
+        try:
+            QLocalServer.removeServer(socket_name)
+        except Exception:
+            pass
+        self._server = QLocalServer(self)
+        if not self._server.listen(socket_name):
+            self.status.showMessage("IPC listen failed")
+            return
+        self._server.newConnection.connect(self._on_new_ipc_connection)
+
+    def _on_new_ipc_connection(self):
+        sock = self._server.nextPendingConnection()
+        sock.readyRead.connect(lambda s=sock: self._on_ipc_ready(s))
+
+    def _on_ipc_ready(self, sock: QLocalSocket):
+        try:
+            raw = bytes(sock.readAll()).decode("utf-8", errors="replace")
+            msg = json.loads(raw or "{}")
+            if msg.get("cmd") == "open_session":
+                code = msg.get("code", "")
+                file_name = msg.get("file", "selection")
+                if code.strip():
+                    self.open_session(code, file_name)
+        except Exception as e:
+            self.status.showMessage(f"IPC error: {e}")
+        finally:
+            sock.disconnectFromServer()
+
+    # ---------- Session management ----------
+    def open_session(self, code: str, file_name: str):
+        if self._busy():
+            try:
+                self._worker.terminate()
+            except Exception:
+                pass
+            self._worker = None
+
+        self.code = code
+        self.lang = lang_hint(file_name)
+        self._build_system_message()
+
+        self._html = []
+        self._assistant_md = ""
+        self._append_code_context_block()
+        self._set_html("".join(self._html))
+        self._flush_render(force=True)
+        self.status.showMessage(f"Loaded selection: {file_name}")
+
+    # ---------- UI helpers ----------
+    @staticmethod
+    def _mk_btn(text, handler):
         b = QPushButton(text)
         b.setFixedHeight(36)
         b.clicked.connect(handler)
@@ -168,12 +225,84 @@ class App(QWidget):
         """)
         return b
 
-    # Actions
+    # ---------- Actions ----------
     def _run_instruction(self, instruction: str):
-        if not instruction.strip() or self._busy(): return
+        if not instruction.strip() or self._busy():
+            return
         self._user_say(instruction)
         self._chat()
 
+    def _do_custom(self):
+        text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
+        if ok and text.strip():
+            self._run_instruction(text.strip())
+
+    def _send_message(self):
+        text = self.input.text().strip()
+        if not text or self._busy():
+            return
+        self.input.clear()
+        self._user_say(text)
+        self._chat()
+
+    def _reset_chat(self):
+        if self._busy():
+            return
+        self._build_system_message()
+        self._html = []
+        self._append_code_context_block()
+        self._flush_render(force=True)
+        self.status.showMessage("Reset")
+
+    # ---------- Conversation plumbing ----------
+    def _build_system_message(self):
+        self.history = [{
+            "role": "system",
+            "content": (
+                "You are a senior software engineer. Be concise and precise. "
+                "Pinned code context follows.\n\n"
+                f"```{self.lang}\n{self.code}\n```"
+            ),
+        }]
+
+    def _user_say(self, text: str):
+        self.history.append({"role": "user", "content": text})
+        self._append_role_block("user", text)
+        self._flush_render(force=True)
+
+    def _chat(self):
+        self._assistant_md = ""
+        self._render_buf = []
+        self.status.showMessage("Generating…")
+        self._start_ts = time.time()
+        self._chars = 0
+        self._append_role_block("assistant", "")
+        self._flush_render(force=True)
+
+        self._worker = ChatWorker(self.history)
+        self._worker.chunk.connect(self._on_chunk)
+        self._worker.error.connect(self._on_error)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+        self._render_timer.start()
+
+    def _on_chunk(self, s: str):
+        self._render_buf.append(s)
+        self._assistant_md += s
+        self._chars += len(s)
+
+    def _on_error(self, msg: str):
+        self._render_buf.append(f"\n\n**Error:** {msg}\n")
+
+    def _on_done(self):
+        self._render_timer.stop()
+        self._flush_render(force=True)
+        self.history.append({"role": "assistant", "content": self._assistant_md})
+        elapsed = time.time() - self._start_ts
+        cps = int(self._chars / elapsed) if elapsed > 0 else 0
+        self.status.showMessage(f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps")
+
+    # ---------- Rendering ----------
     def _append_code_context_block(self):
         lang = self.lang or "plaintext"
         code_html = (
@@ -186,86 +315,17 @@ class App(QWidget):
         )
         self._html.append(code_html)
 
-    def _do_custom(self):
-        text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
-        if ok and text.strip():
-            self._run_instruction(text.strip())
-
-    def _send_message(self):
-        text = self.input.text().strip()
-        if not text or self._busy(): return
-        self.input.clear()
-        self._user_say(text)
-        self._chat()
-
-    def _reset_chat(self):
-        if self._busy(): return
-        self._build_system_message()
-        self._html = []
-        self._append_role_block("system", "Conversation reset. Code context pinned.")
-        self._flush_render(force=True)
-        self.status.showMessage("Reset")
-
-    # Conversation plumbing
-    def _user_say(self, text: str):
-        self.history.append({"role": "user", "content": text})
-        self._append_role_block("user", text)
-        self._flush_render(force=True)
-
-    def _chat(self):
-        self._assistant_md = ""
-        self._render_buf = []
-        self.status.showMessage("Generating…")
-        self._start_ts = time.time()
-        self._chars = 0
-        self._render_buf = []
-        self._append_role_block("assistant", "")  # start a new assistant block
-        self._flush_render(force=True)
-
-        self._worker = ChatWorker(self.history)
-        self._worker.chunk.connect(self._on_chunk)
-        self._worker.error.connect(self._on_error)
-        self._worker.done.connect(self._on_done)
-        self._worker.start()
-        self._render_timer.start()
-
-    def _on_chunk(self, s: str):
-        self._render_buf.append(s)  # small buffer to throttle UI refreshes
-        self._assistant_md += s  # full cumulative assistant message
-        self._chars += len(s)
-
-    def _on_error(self, msg: str):
-        self._render_buf.append(f"\n\n**Error:** {msg}\n")
-
-    def _on_done(self):
-        self._render_timer.stop()
-        self._flush_render(force=True)
-        # Save the full accumulated assistant text into chat history
-        self.history.append({"role": "assistant", "content": self._assistant_md})
-        elapsed = time.time() - self._start_ts
-        cps = int(self._chars / elapsed) if elapsed > 0 else 0
-        self.status.showMessage(f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps")
-
-    # Rendering
     def _append_role_block(self, role: str, content_md: str):
         label = {"system": "system", "user": "you", "assistant": "assistant"}.get(role, role)
         self._html.append(f'<div class="role">{label}</div>')
         self._html.append(md.render(content_md or ""))
 
-    def _extract_last_assistant_markdown(self):
-        # last blocks are: <div class="role">assistant</div>, <rendered md ...>
-        if len(self._html) >= 2 and "assistant" in self._html[-2]:
-            return [self._html[-1].replace("</p>", "").replace("<p>", "")]
-        return [""]
-
     def _flush_render(self, force=False):
         if self._render_buf or force:
             if len(self._html) >= 2 and "assistant" in self._html[-2]:
-                # Render the full accumulated assistant markdown
                 self._html[-1] = md.render(self._assistant_md)
             self._render_buf = []
-            html = "".join(self._html)
-            self._set_html(html)
+            self._set_html("".join(self._html))
 
     def _on_page_ready(self, ok: bool):
         self._page_ready = bool(ok)
@@ -274,7 +334,6 @@ class App(QWidget):
             self._pending_html = None
 
     def _set_html(self, html: str):
-        # Safe entry point used everywhere
         if not self._page_ready:
             self._pending_html = html
             return
@@ -286,14 +345,3 @@ class App(QWidget):
 
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
-
-    def _build_system_message(self):
-        return {
-            "role": "system",
-            "content": (
-                "You are a senior software engineer. Be concise and precise. "
-                "Pinned code context follows.\n\n"
-                f"```{self.lang}\n{self.code}\n```"
-            ),
-        }
-
