@@ -9,6 +9,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from utils import ACTIONS, build_prompt, lang_hint
 from ollama_client import MODEL, TEMP, OLLAMA_URL
+from html import escape
 
 import requests
 
@@ -56,15 +57,15 @@ class ChatWorker(QThread):
     def run(self):
         try:
             with requests.post(
-                OLLAMA_URL.replace("/generate", "/chat"),
-                headers={"Content-Type": "application/json"},
-                data=json.dumps({
-                    "model": MODEL,
-                    "messages": self.messages,
-                    "options": {"temperature": TEMP},
-                    "stream": True
-                }),
-                stream=True, timeout=300
+                    OLLAMA_URL.replace("/generate", "/chat"),
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps({
+                        "model": MODEL,
+                        "messages": self.messages,
+                        "options": {"temperature": TEMP},
+                        "stream": True
+                    }),
+                    stream=True, timeout=300
             ) as r:
                 r.raise_for_status()
                 for line in r.iter_lines(decode_unicode=True):
@@ -78,6 +79,8 @@ class ChatWorker(QThread):
                         txt = line
                     if txt:
                         self.chunk.emit(txt)
+        except requests.exceptions.RequestException as e:  # More specific exception handling
+            self.error.emit(f"Network error: {str(e)}")
         except Exception as e:
             self.error.emit(str(e))
         finally:
@@ -93,17 +96,7 @@ class App(QWidget):
         self.lang = lang_hint(file_name)
 
         # Conversation state (system prompt pins code context)
-        self.history = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a senior software engineer. Be concise and precise. "
-                    "When returning edits, prefer minimal code blocks. "
-                    "Pinned code context follows; refer to it as 'the provided code'.\n\n"
-                    f"```{self.lang}\n{self.code}\n```"
-                ),
-            }
-        ]
+        self._build_system_message()
 
         # Top bar (actions)
         top = QHBoxLayout()
@@ -119,6 +112,9 @@ class App(QWidget):
         # Web view transcript
         self.view = QWebEngineView()
         self.view.setHtml(HTML_TEMPLATE)
+        self._page_ready = False
+        self._pending_html = None
+        self.view.loadFinished.connect(self._on_page_ready)
 
         # Chat input row
         bottom = QHBoxLayout()
@@ -144,7 +140,11 @@ class App(QWidget):
 
         # Streaming buffer and timers
         self._render_buf = []     # current assistant chunk buffer
-        self._html = []           # full HTML transcript sections
+        self._html = []
+        self._assistant_md = ""
+        self._append_code_context_block()  # builds initial HTML with pinned code
+        self._set_html("".join(self._html))  # now safely buffered until page ready
+
         self._render_timer = QTimer(self)
         self._render_timer.setInterval(80)
         self._render_timer.timeout.connect(self._flush_render)
@@ -154,7 +154,6 @@ class App(QWidget):
         self._chars = 0
 
         # Seed transcript
-        self._append_role_block("system", "Pinned code context loaded.")
         self._flush_render(force=True)
 
     # UI helpers
@@ -175,6 +174,18 @@ class App(QWidget):
         self._user_say(instruction)
         self._chat()
 
+    def _append_code_context_block(self):
+        lang = self.lang or "plaintext"
+        code_html = (
+            f'<div class="role">system</div>'
+            f'<details open>'
+            f'<summary style="cursor:pointer">Pinned code context ({lang})</summary>'
+            f'<pre><code class="language-{lang}">{escape(self.code)}</code></pre>'
+            f'</details>'
+            f'<hr/>'
+        )
+        self._html.append(code_html)
+
     def _do_custom(self):
         text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
         if ok and text.strip():
@@ -189,16 +200,7 @@ class App(QWidget):
 
     def _reset_chat(self):
         if self._busy(): return
-        self.history = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a senior software engineer. Be concise and precise. "
-                    "Pinned code context follows.\n\n"
-                    f"```{self.lang}\n{self.code}\n```"
-                ),
-            }
-        ]
+        self._build_system_message()
         self._html = []
         self._append_role_block("system", "Conversation reset. Code context pinned.")
         self._flush_render(force=True)
@@ -265,9 +267,33 @@ class App(QWidget):
             html = "".join(self._html)
             self._set_html(html)
 
+    def _on_page_ready(self, ok: bool):
+        self._page_ready = bool(ok)
+        if self._page_ready and self._pending_html is not None:
+            self._really_set_html(self._pending_html)
+            self._pending_html = None
+
     def _set_html(self, html: str):
+        # Safe entry point used everywhere
+        if not self._page_ready:
+            self._pending_html = html
+            return
+        self._really_set_html(html)
+
+    def _really_set_html(self, html: str):
         js = f"setHtml({json.dumps(html)});"
         self.view.page().runJavaScript(js)
 
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
+
+    def _build_system_message(self):
+        return {
+            "role": "system",
+            "content": (
+                "You are a senior software engineer. Be concise and precise. "
+                "Pinned code context follows.\n\n"
+                f"```{self.lang}\n{self.code}\n```"
+            ),
+        }
+
