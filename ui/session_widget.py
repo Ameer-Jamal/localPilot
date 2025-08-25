@@ -1,17 +1,20 @@
-import json, time
+import json
+import time
 from html import escape
-from markdown_it import MarkdownIt
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar, QInputDialog
-from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar, QInputDialog
+from markdown_it import MarkdownIt
+
+from config import MODEL
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
-from workers.chat_worker import ChatWorker
 from utils import ACTIONS, lang_hint
-from config import MODEL
+from workers.chat_worker import ChatWorker
 
 md = MarkdownIt()
+
 
 class SessionWidget(QWidget):
     """One chat session pinned to a specific code selection."""

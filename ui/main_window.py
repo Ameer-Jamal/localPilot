@@ -1,4 +1,5 @@
 import json
+
 from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QPushButton, QMessageBox
@@ -7,8 +8,10 @@ from ui.session_widget import SessionWidget
 
 SOCKET_NAME = "AskAboutSelectionSocket"
 
+
 class MainWindow(QMainWindow):
     """Holds tabs; manages IPC; supports a persistent Always-On-Top 'Pin' toggle."""
+
     def __init__(self, code: str, file_name: str):
         super().__init__()
         self.setWindowTitle("Ask about selection")
@@ -24,9 +27,13 @@ class MainWindow(QMainWindow):
 
         # Header with Pin toggle (top-left)
         container = QWidget(self)
-        v = QVBoxLayout(container); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+        v = QVBoxLayout(container);
+        v.setContentsMargins(0, 0, 0, 0);
+        v.setSpacing(0)
         header = QWidget(container)
-        h = QHBoxLayout(header); h.setContentsMargins(8, 8, 8, 4); h.setSpacing(8)
+        h = QHBoxLayout(header);
+        h.setContentsMargins(8, 8, 8, 4);
+        h.setSpacing(8)
 
         self._pin_btn = QPushButton("Pin: Off", header)
         self._pin_btn.setCheckable(True)
@@ -63,7 +70,8 @@ class MainWindow(QMainWindow):
     def _apply_pin(self, checked: bool):
         self.setWindowFlag(Qt.WindowStaysOnTopHint, checked)
         if self.isVisible():  # macOS needs hide/show to apply new flags
-            self.hide(); self.show()
+            self.hide();
+            self.show()
         self._pin_btn.setText("Pin: On" if checked else "Pin: Off")
         self.bring_to_front()
 
@@ -104,8 +112,8 @@ class MainWindow(QMainWindow):
         title = self.tabs.tabText(index) or "Untitled"
         busy_note = "\nA response is still generating." if getattr(w, "_busy", None) and w._busy() else ""
         if QMessageBox.question(
-            self, "Close tab", f'Close tab “{title}”?{busy_note}',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                self, "Close tab", f'Close tab “{title}”?{busy_note}',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         ) != QMessageBox.Yes:
             return
         try:

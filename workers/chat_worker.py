@@ -1,7 +1,10 @@
 import json
+
 import requests
 from PySide6.QtCore import QThread, Signal
+
 from config import MODEL, TEMP, OLLAMA_CHAT_URL, NUM_CTX, KEEP_ALIVE
+
 
 class ChatWorker(QThread):
     """Streams tokens from Ollama /api/chat and emits chunks into the UI."""

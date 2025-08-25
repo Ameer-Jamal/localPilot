@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFontMetricsF, QTextOption
 from PySide6.QtWidgets import QTextEdit, QSizePolicy
 
+
 class AutoResizingTextEdit(QTextEdit):
     """Plain-text multi-line input that grows/shrinks between min/max lines.
        Enter → newline; Cmd/Ctrl+Enter → send."""

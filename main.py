@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-import os, sys, argparse, json
-from PySide6.QtWidgets import QApplication
+import argparse
+import json
+import os
+import sys
+
 from PySide6.QtNetwork import QLocalSocket
+from PySide6.QtWidgets import QApplication
+
 from app import MainWindow
 
 SOCKET_NAME = f"ask_code_ollama_{os.getuid()}"
+
 
 def slice_by_line_col(text: str, sl: int, sc: int, el: int, ec: int) -> str:
     lines = text.splitlines(keepends=True)

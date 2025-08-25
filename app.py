@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-import os, sys, argparse
+import argparse
+import os
+import sys
 
 from PySide6.QtWidgets import QApplication
-from ui.main_window import MainWindow
+
 from ipc import send_open_session
+from ui.main_window import MainWindow
+
 
 def _read_selection_from_ranges(path: str, sline: int, scol: int, eline: int, ecol: int) -> str:
     with open(path, "r", encoding="utf-8", errors="replace") as f:
