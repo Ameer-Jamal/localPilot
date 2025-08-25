@@ -2,7 +2,8 @@ import json, time
 from markdown_it import MarkdownIt
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar, QApplication, QInputDialog
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar,
+    QApplication, QInputDialog, QLineEdit
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -26,6 +27,7 @@ HTML_TEMPLATE = """<!doctype html>
   h1,h2,h3{ color: var(--accent); margin: 14px 0 8px; }
   pre { background: #23272e; padding: 12px; border-radius: 8px; overflow:auto; }
   code { background: #23272e; padding: 2px 4px; border-radius: 4px; }
+  .role { color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
   hr { border:0; height:1px; background:#2b3137; margin:16px 0; }
 </style>
 <script>
@@ -39,30 +41,30 @@ HTML_TEMPLATE = """<!doctype html>
 </head><body><div id="wrap"></div></body></html>
 """
 
-md = MarkdownIt()  # CommonMark; good enough for LLM output
+md = MarkdownIt()
 
-
-class OllamaWorker(QThread):
+class ChatWorker(QThread):
     chunk = Signal(str)
     done = Signal()
     error = Signal(str)
 
-    def __init__(self, prompt: str):
+    def __init__(self, messages):
         super().__init__()
-        self.prompt = prompt
+        self._assistant_md = ""  # cumulative assistant markdown for the current turn
+        self.messages = messages  # list[{"role": "...", "content": "..."}]
 
     def run(self):
         try:
             with requests.post(
-                    OLLAMA_URL,
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps({
-                        "model": MODEL,
-                        "prompt": self.prompt,
-                        "options": {"temperature": TEMP},
-                        "stream": True
-                    }),
-                    stream=True, timeout=300
+                OLLAMA_URL.replace("/generate", "/chat"),
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({
+                    "model": MODEL,
+                    "messages": self.messages,
+                    "options": {"temperature": TEMP},
+                    "stream": True
+                }),
+                stream=True, timeout=300
             ) as r:
                 r.raise_for_status()
                 for line in r.iter_lines(decode_unicode=True):
@@ -70,7 +72,8 @@ class OllamaWorker(QThread):
                         continue
                     try:
                         obj = json.loads(line)
-                        txt = obj.get("response", "")
+                        msg = obj.get("message", {})  # {role, content}
+                        txt = msg.get("content", "") if msg else obj.get("response", "")
                     except json.JSONDecodeError:
                         txt = line
                     if txt:
@@ -80,56 +83,81 @@ class OllamaWorker(QThread):
         finally:
             self.done.emit()
 
-
 class App(QWidget):
     def __init__(self, code: str, file_name: str):
         super().__init__()
         self.setWindowTitle("Ask about selection")
-        self.resize(1000, 700)
+        self.resize(1000, 760)
 
         self.code = code
         self.lang = lang_hint(file_name)
 
-        # Top bar
+        # Conversation state (system prompt pins code context)
+        self.history = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a senior software engineer. Be concise and precise. "
+                    "When returning edits, prefer minimal code blocks. "
+                    "Pinned code context follows; refer to it as 'the provided code'.\n\n"
+                    f"```{self.lang}\n{self.code}\n```"
+                ),
+            }
+        ]
+
+        # Top bar (actions)
         top = QHBoxLayout()
-        btn = lambda label, fn: self._mk_btn(label, fn)
-        top.addWidget(btn("Explain", self.do_explain))
-        top.addWidget(btn("Refactor (diff)", self.do_refactor))
-        top.addWidget(btn("Tests", self.do_tests))
-        top.addWidget(btn("Custom…", self.do_custom))
+        top.addWidget(self._mk_btn("Explain", lambda: self._run_instruction(ACTIONS["explain"])))
+        top.addWidget(self._mk_btn("Refactor (diff)", lambda: self._run_instruction(ACTIONS["refactor"])))
+        top.addWidget(self._mk_btn("Tests", lambda: self._run_instruction(ACTIONS["tests"])))
+        top.addWidget(self._mk_btn("Custom…", self._do_custom))
         top.addStretch(1)
         self.model_lbl = QLabel(f"Model: {MODEL}")
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
         top.addWidget(self.model_lbl)
 
-        # Web view
+        # Web view transcript
         self.view = QWebEngineView()
         self.view.setHtml(HTML_TEMPLATE)
+
+        # Chat input row
+        bottom = QHBoxLayout()
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Ask a follow-up…  (Enter to send)")
+        self.input.returnPressed.connect(self._send_message)
+        send_btn = self._mk_btn("Send", self._send_message)
+        reset_btn = self._mk_btn("Reset", self._reset_chat)
+        bottom.addWidget(self.input, 1)
+        bottom.addWidget(send_btn)
+        bottom.addWidget(reset_btn)
 
         # Status bar
         self.status = QStatusBar()
         self.status.showMessage("Ready")
 
-        # Layout
+        # Root layout
         root = QVBoxLayout(self)
         root.addLayout(top)
         root.addWidget(self.view, 1)
+        root.addLayout(bottom)
         root.addWidget(self.status)
 
-        # Streaming state
-        self._buf = []
+        # Streaming buffer and timers
+        self._render_buf = []     # current assistant chunk buffer
+        self._html = []           # full HTML transcript sections
         self._render_timer = QTimer(self)
-        self._render_timer.setInterval(80)  # ~12 fps; smooth and light
-        self._render_timer.timeout.connect(self._render_flush)
+        self._render_timer.setInterval(80)
+        self._render_timer.timeout.connect(self._flush_render)
 
+        self._worker = None
         self._start_ts = 0.0
         self._chars = 0
-        self._worker = None
 
-        # Initial content
-        self._set_html(md.render("Ready. Choose an action above.\n"))
+        # Seed transcript
+        self._append_role_block("system", "Pinned code context loaded.")
+        self._flush_render(force=True)
 
-    # Buttons
+    # UI helpers
     def _mk_btn(self, text, handler):
         b = QPushButton(text)
         b.setFixedHeight(36)
@@ -142,26 +170,57 @@ class App(QWidget):
         return b
 
     # Actions
-    def do_explain(self):
-        self._run_task(ACTIONS["explain"])
+    def _run_instruction(self, instruction: str):
+        if not instruction.strip() or self._busy(): return
+        self._user_say(instruction)
+        self._chat()
 
-    def do_refactor(self):
-        self._run_task(ACTIONS["refactor"])
+    def _do_custom(self):
+        text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
+        if ok and text.strip():
+            self._run_instruction(text.strip())
 
-    def do_tests(self):
-        self._run_task(ACTIONS["tests"])
+    def _send_message(self):
+        text = self.input.text().strip()
+        if not text or self._busy(): return
+        self.input.clear()
+        self._user_say(text)
+        self._chat()
 
-    # Core
-    def _run_task(self, task_text: str):
-        if self._worker and self._worker.isRunning():
-            return
-        self._buf = [f"# Task\n{task_text}\n\n---\n"]
-        self._chars = 0
-        self._start_ts = time.time()
+    def _reset_chat(self):
+        if self._busy(): return
+        self.history = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a senior software engineer. Be concise and precise. "
+                    "Pinned code context follows.\n\n"
+                    f"```{self.lang}\n{self.code}\n```"
+                ),
+            }
+        ]
+        self._html = []
+        self._append_role_block("system", "Conversation reset. Code context pinned.")
+        self._flush_render(force=True)
+        self.status.showMessage("Reset")
+
+    # Conversation plumbing
+    def _user_say(self, text: str):
+        self.history.append({"role": "user", "content": text})
+        self._append_role_block("user", text)
+        self._flush_render(force=True)
+
+    def _chat(self):
+        self._assistant_md = ""
+        self._render_buf = []
         self.status.showMessage("Generating…")
-        prompt = build_prompt(task_text, self.code, self.lang)
+        self._start_ts = time.time()
+        self._chars = 0
+        self._render_buf = []
+        self._append_role_block("assistant", "")  # start a new assistant block
+        self._flush_render(force=True)
 
-        self._worker = OllamaWorker(prompt)
+        self._worker = ChatWorker(self.history)
         self._worker.chunk.connect(self._on_chunk)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
@@ -169,29 +228,46 @@ class App(QWidget):
         self._render_timer.start()
 
     def _on_chunk(self, s: str):
-        self._buf.append(s)
+        self._render_buf.append(s)  # small buffer to throttle UI refreshes
+        self._assistant_md += s  # full cumulative assistant message
         self._chars += len(s)
 
     def _on_error(self, msg: str):
-        self._buf.append(f"\n\n**Error:** {msg}\n")
+        self._render_buf.append(f"\n\n**Error:** {msg}\n")
 
     def _on_done(self):
         self._render_timer.stop()
-        self._render_flush()
+        self._flush_render(force=True)
+        # Save the full accumulated assistant text into chat history
+        self.history.append({"role": "assistant", "content": self._assistant_md})
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
         self.status.showMessage(f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps")
 
-    def _render_flush(self):
-        html = md.render("".join(self._buf))
-        self._set_html(html)
+    # Rendering
+    def _append_role_block(self, role: str, content_md: str):
+        label = {"system": "system", "user": "you", "assistant": "assistant"}.get(role, role)
+        self._html.append(f'<div class="role">{label}</div>')
+        self._html.append(md.render(content_md or ""))
+
+    def _extract_last_assistant_markdown(self):
+        # last blocks are: <div class="role">assistant</div>, <rendered md ...>
+        if len(self._html) >= 2 and "assistant" in self._html[-2]:
+            return [self._html[-1].replace("</p>", "").replace("<p>", "")]
+        return [""]
+
+    def _flush_render(self, force=False):
+        if self._render_buf or force:
+            if len(self._html) >= 2 and "assistant" in self._html[-2]:
+                # Render the full accumulated assistant markdown
+                self._html[-1] = md.render(self._assistant_md)
+            self._render_buf = []
+            html = "".join(self._html)
+            self._set_html(html)
 
     def _set_html(self, html: str):
-        # Send HTML into the page and re-highlight
         js = f"setHtml({json.dumps(html)});"
         self.view.page().runJavaScript(js)
 
-    def do_custom(self):
-        text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
-        if ok and text.strip():
-            self._run_task(text.strip())
+    def _busy(self) -> bool:
+        return self._worker is not None and self._worker.isRunning()
