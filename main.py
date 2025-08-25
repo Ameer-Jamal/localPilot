@@ -70,7 +70,7 @@ def main():
     # Otherwise, start the app and begin listening for future selections.
     app = QApplication(sys.argv)
     win = MainWindow(code, args.file or os.path.basename(args.filepath))
-    win.listen_ipc(SOCKET_NAME)
+    win.listen_ipc()
     win.show()
     sys.exit(app.exec())
 
