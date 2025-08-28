@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+    <style>
+        :root { --bg:#0f1115; --panel:#12161a; --text:#e6e6e6; --muted:#9aa5b1; --accent:#4ec9b0; }
+        html, body { background: var(--bg); color: var(--text); margin:0; padding:0; }
+        body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "JetBrains Mono", monospace; }
+        #wrap { padding: 16px 18px; }
+        h1,h2,h3{ color: var(--accent); margin: 14px 0 8px; }
+        pre { background: #23272e; padding: 12px; border-radius: 8px; overflow:auto; position: relative; }
+        code { background: #23272e; padding: 2px 4px; border-radius: 4px; }
+        .role { color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
+        hr { border:0; height:1px; background:#2b3137; margin:16px 0; }
+
+        /* Copy button: always visible, neutral -> hover fill -> green on copied */
+        .copy-btn {
+          position: absolute;
+          top: 6px; right: 6px;
+          border: 1px solid #3e444a;
+          background: transparent;
+          color: #cfd8dc;
+          border-radius: 8px;
+          font-size: 12px;
+          padding: 3px 8px;
+          cursor: pointer;
+          user-select: none;
+          transition: background-color .12s ease, color .12s ease, border-color .12s ease, transform .05s ease;
+          backdrop-filter: blur(2px);
+        }
+        .copy-btn:hover {
+          background: #2b3137;
+          border-color: #4b5259;
+          color: #ffffff;
+        }
+        .copy-btn:active { transform: translateY(1px); }
+        .copy-btn.copied {
+          background: #2e7d32;
+          border-color: #1b5e20;
+          color: #ffffff;
+        }
+    </style>
+    <script>
+        // Sticky scrolling
+        function nearBottom(thresholdPx = 80) {
+          return (window.innerHeight + window.pageYOffset) >= (document.body.scrollHeight - thresholdPx);
+        }
+        function scrollToBottom() { window.scrollTo({ top: document.body.scrollHeight }); }
+
+        // Add stable copy buttons to all <pre><code> blocks inside root
+        function addCopyButtons(root) {
+          root.querySelectorAll('pre').forEach(pre => {
+            // Skip if a button already exists
+            if (pre.querySelector('.copy-btn')) return;
+            const codeEl = pre.querySelector('code');
+            if (!codeEl) return;
+
+            const btn = document.createElement('button');
+            btn.className = 'copy-btn';
+            btn.textContent = 'Copy';
+            btn.onclick = async (e) => {
+              e.stopPropagation();
+              const text = codeEl.innerText;
+              try {
+                if (navigator.clipboard && window.isSecureContext) {
+                  await navigator.clipboard.writeText(text);
+                } else {
+                  const ta = document.createElement('textarea');
+                  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                  document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                }
+                btn.classList.add('copied');
+                btn.textContent = 'Copied';
+              } catch (_) { /* no-op */ }
+            };
+            pre.addEventListener('mouseleave', () => {
+              btn.classList.remove('copied');
+              btn.textContent = 'Copy';
+            });
+            pre.appendChild(btn);
+          });
+        }
+
+        // Highlight only new/unhighlighted code blocks
+        function highlightNew(root) {
+          root.querySelectorAll('pre > code').forEach(codeEl => {
+            const pre = codeEl.parentElement;
+            if (!codeEl.classList.contains('hljs')) {
+              try { hljs.highlightElement(codeEl); } catch(e) {}
+            }
+            // ensure copy buttons exist
+            if (!pre.querySelector('.copy-btn')) {
+              addCopyButtons(pre);
+            }
+          });
+        }
+
+        // DOM diff/patch: replace only changed middle segment of #wrap children
+        function setHtml(html) {
+          const wasNearBottom = nearBottom();
+          const wrap = document.getElementById('wrap');
+
+          const temp = document.createElement('div');
+          temp.innerHTML = html;
+
+          const oldKids = Array.from(wrap.children);
+          const newKids = Array.from(temp.children);
+
+          // Fast path: first render
+          if (oldKids.length === 0) {
+            wrap.innerHTML = html;
+            highlightNew(wrap);
+            addCopyButtons(wrap);
+            if (wasNearBottom) scrollToBottom();
+            return;
+          }
+
+          // Find longest common prefix
+          let i = 0;
+          while (i < oldKids.length && i < newKids.length &&
+                 oldKids[i].outerHTML === newKids[i].outerHTML) { i++; }
+
+          // Find longest common suffix
+          let j = 0;
+          while ((oldKids.length - 1 - j) >= i &&
+                 (newKids.length - 1 - j) >= i &&
+                 oldKids[oldKids.length - 1 - j].outerHTML === newKids[newKids.length - 1 - j].outerHTML) { j++; }
+
+          // Remove old middle
+          for (let k = oldKids.length - 1 - j; k >= i; k--) {
+            wrap.removeChild(oldKids[k]);
+          }
+          // Insert new middle at position i
+          const frag = document.createDocumentFragment();
+          for (let k = i; k < newKids.length - j; k++) {
+            frag.appendChild(newKids[k]);
+          }
+          if (i >= wrap.children.length) {
+            wrap.appendChild(frag);
+          } else {
+            wrap.insertBefore(frag, wrap.children[i]);
+          }
+
+          // Highlight only the newly inserted nodes and add copy buttons
+          const insertedRange = document.createElement('div');
+          for (let k = i; k < wrap.children.length - j; k++) {
+            insertedRange.appendChild(wrap.children[k].cloneNode(true));
+          }
+          highlightNew(wrap);
+          addCopyButtons(wrap);
+
+          if (wasNearBottom) scrollToBottom();
+        }
+    </script>
+</head>
+<body>
+<div id="wrap"></div>
+</body>
+</html>
+

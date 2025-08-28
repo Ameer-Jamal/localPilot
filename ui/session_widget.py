@@ -4,7 +4,7 @@ from html import escape
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar, QInputDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar
 from markdown_it import MarkdownIt
 
 from config import MODEL
@@ -34,7 +34,7 @@ class SessionWidget(QWidget):
         top.addWidget(self._mk_btn("Explain", lambda: self.auto_run(ACTIONS["explain"])))
         top.addWidget(self._mk_btn("Refactor (diff)", lambda: self.auto_run(ACTIONS["refactor"])))
         top.addWidget(self._mk_btn("Tests", lambda: self.auto_run(ACTIONS["tests"])))
-        top.addWidget(self._mk_btn("Custom…", self._do_custom))
+        top.addWidget(self._mk_btn("Performance", lambda: self.auto_run(ACTIONS["performance"])))
         top.addStretch(1)
         self.model_lbl = QLabel(f"Model: {MODEL}")
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
@@ -185,12 +185,6 @@ class SessionWidget(QWidget):
     def _really_set_html(self, html: str):
         js = f"setHtml({json.dumps(html)});"
         self.view.page().runJavaScript(js)
-
-    # actions
-    def _do_custom(self):
-        text, ok = QInputDialog.getText(self, "Custom Instruction", "Enter your request:")
-        if ok and text.strip():
-            self.auto_run(text.strip())
 
     def _send_message_same_tab(self):
         text = self.input.toPlainText().strip()

@@ -7,5 +7,5 @@ TEMP = 0.2
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 
 # Context window for chat requests (increase if you pin long code)
-NUM_CTX = 8192  # adjust to 16384 if your build/model supports it
+NUM_CTX = 16384  # adjust build/model supports it
 KEEP_ALIVE = "10m"  # keep loaded between requests

@@ -1,30 +1,28 @@
-"""HTML shell for the transcript view (rendered inside QWebEngineView)."""
+from importlib import resources as _res
+from pathlib import Path
 
-HTML_TEMPLATE = """<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet"
-  href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css">
-<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
-<style>
-  :root { --bg:#0f1115; --panel:#12161a; --text:#e6e6e6; --muted:#9aa5b1; --accent:#4ec9b0; }
-  html, body { background: var(--bg); color: var(--text); margin:0; padding:0; }
-  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "JetBrains Mono", monospace; }
-  #wrap { padding: 16px 18px; }
-  h1,h2,h3{ color: var(--accent); margin: 14px 0 8px; }
-  pre { background: #23272e; padding: 12px; border-radius: 8px; overflow:auto; }
-  code { background: #23272e; padding: 2px 4px; border-radius: 4px; }
-  .role { color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
-  hr { border:0; height:1px; background:#2b3137; margin:16px 0; }
-</style>
-<script>
-  function setHtml(html) {
-    const c = document.getElementById('wrap');
-    c.innerHTML = html;
-    try { hljs.highlightAll(); } catch(e) {}
-    window.scrollTo(0, document.body.scrollHeight);
-  }
-</script>
-</head><body><div id="wrap"></div></body></html>
-"""
+
+def load_html_template() -> str:
+    """
+    Load template.html packaged with this module, regardless of the process CWD.
+    Tries importlib.resources first, then falls back to a path next to this file,
+    and finally to a minimal built-in template.
+    """
+    # 1) importlib.resources (works when run as a package/module)
+    try:
+        # __package__ should be "resources"; use that explicitly for clarity
+        return _res.files("resources").joinpath("template.html").read_text(encoding="utf-8")
+    except Exception:
+        pass
+
+    # 2) Path next to this python file (works when running from source tree)
+    try:
+        p = Path(__file__).resolve().parent / "template.html"
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    except Exception:
+        pass
+
+
+# Public constant imported elsewhere
+HTML_TEMPLATE = load_html_template()

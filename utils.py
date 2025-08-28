@@ -1,9 +1,10 @@
 """Small utilities and static prompts."""
 
 ACTIONS = {
-    "explain": "Explain what this code does, list concrete risks, and propose improvements.",
-    "refactor": "Refactor for readability and micro-performance. Return a unified diff only. Preserve behavior.",
+    "explain": "Explain what this code does, list concrete risks, and breakdown the flow",
+    "refactor": "Refactor for readability. Follow professional best practices like SRP and Preserve behavior.",
     "tests": "Generate focused unit tests with Arrange-Act-Assert and edge cases.",
+    "performance": "Rewrite for maximum performance gain without changing functionality",
 }
 
 
