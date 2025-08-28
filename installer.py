@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-AskCode installer
+LocalPilot installer
 
-- Creates/updates a user-level External Tool named "AskCode" for JetBrains IDEs
+- Creates/updates a user-level External Tool named "LocalPilot" for JetBrains IDEs
   and Android Studio across *old* (tools/External Tools.xml) and *new* (options/tools.xml) schemas.
 - Leaves any other external tools untouched.
-- Adds/updates a launcher script at ~/.local/bin/ask-code (optional but recommended).
+- Adds/updates a launcher script at ~/.local/bin/localpilot (optional but recommended).
 - Provides: install (default), uninstall, doctor
 
 Usage:
@@ -26,7 +26,7 @@ from pathlib import Path
 
 HOME = Path.home()
 ASKCODE_ROOT = Path(__file__).resolve().parent
-LAUNCHER = HOME / ".local" / "bin" / "ask-code"
+LAUNCHER = HOME / ".local" / "bin" / "localpilot"
 MAIN_PY = ASKCODE_ROOT / "main.py"  # your top-level entrypoint in this repo
 
 # External Tool arguments (robust to missing macros)
@@ -89,11 +89,11 @@ def find_config_roots() -> list[Path]:
 
 def ensure_launcher() -> Path:
     """
-    Write ~/.local/bin/ask-code which runs this repo's main.py with the user's default Python.
+    Write ~/.local/bin/localpilot which runs this repo's main.py with the user's default Python.
     Uses /usr/bin/env python3 to avoid hard-coding a path.
     """
     script = f"""#!/bin/sh
-    # AskCode launcher
+    # LocalPilot launcher
     exec /usr/bin/env python3 "{MAIN_PY}" "$@"
     """
     ensure_parent(LAUNCHER)
@@ -142,15 +142,15 @@ def ensure_tool_in_legacy(root_dir: Path) -> bool:
             comp = root.find("./component[@name='Tools']") or ET.SubElement(root, "component", {"name": "Tools"})
             tset = ET.SubElement(comp, "toolSet", {"name": "External Tools"})
 
-    # Remove existing AskCode entries
+    # Remove existing LocalPilot entries
     for t in list(tset.findall("./tool")):
-        if t.get("name") == "AskCode":
+        if t.get("name") == "LocalPilot":
             tset.remove(t)
 
-    # Add new AskCode tool
+    # Add new LocalPilot tool
     tool = ET.SubElement(tset, "tool", {
-        "name": "AskCode",
-        "description": "Send current selection to AskCode",
+        "name": "LocalPilot",
+        "description": "Send current selection to LocalPilot",
         "showInMainMenu": "true",
         "showInEditor": "true",
         "showInProject": "true",
@@ -201,16 +201,16 @@ def ensure_tool_in_options(root_dir: Path) -> bool:
     if tset is None:
         tset = ET.SubElement(comp, "toolSet", {"name": "External Tools"})
 
-    # Remove existing AskCode entries
+    # Remove existing LocalPilot entries
     changed = created
     for t in list(tset.findall("./tool")):
-        if t.get("name") == "AskCode":
+        if t.get("name") == "LocalPilot":
             tset.remove(t)
             changed = True
 
     tool = ET.SubElement(tset, "tool", {
-        "name": "AskCode",
-        "description": "Send current selection to AskCode",
+        "name": "LocalPilot",
+        "description": "Send current selection to LocalPilot",
         "showInMainMenu": "true",
         "showInEditor": "true",
         "showInProject": "true",
@@ -234,7 +234,7 @@ def ensure_tool_in_options(root_dir: Path) -> bool:
 
 def remove_tool_from_file(path: Path) -> bool:
     """
-    Remove AskCode tool from a specific XML file (legacy or options).
+    Remove LocalPilot tool from a specific XML file (legacy or options).
     Returns True if a change was made.
     """
     if not path.exists():
@@ -245,8 +245,8 @@ def remove_tool_from_file(path: Path) -> bool:
         return False
     root = tree.getroot()
     changed = False
-    # remove any <tool name="AskCode"> anywhere
-    for tool in root.findall(".//tool[@name='AskCode']"):
+    # remove any <tool name="LocalPilot"> anywhere
+    for tool in root.findall(".//tool[@name='LocalPilot']"):
         parent = None
         # find parent by scanning (ElementTree lacks .getparent())
         for elem in root.iter():
@@ -261,7 +261,7 @@ def remove_tool_from_file(path: Path) -> bool:
             changed = True
     if changed:
         xml_write(path, tree)
-        info(f"✔ Removed AskCode: {path}")
+        info(f"✔ Removed LocalPilot: {path}")
     return changed
 
 
@@ -277,7 +277,7 @@ def uninstall_everywhere(roots: list[Path]) -> bool:
 
 def purge_project_shadow(project_dir: Path) -> int:
     """
-    Remove project-scoped AskCode tool(s) that can shadow user-level tools.
+    Remove project-scoped LocalPilot tool(s) that can shadow user-level tools.
     Looks for .idea/**/External Tools*.xml and .idea/options/tools.xml
     """
     n = 0
@@ -315,7 +315,7 @@ def doctor(roots: list[Path]):
                 try:
                     tree = ET.parse(p)
                     root = tree.getroot()
-                    found = root.findall(".//tool[@name='AskCode']")
+                    found = root.findall(".//tool[@name='LocalPilot']")
                     print(f"    {p}: {'FOUND' if found else 'not present'}")
                 except ET.ParseError:
                     print(f"    {p}: invalid XML")
@@ -328,9 +328,9 @@ def doctor(roots: list[Path]):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("action", nargs="?", choices=["install", "uninstall", "doctor"], default="install")
-    ap.add_argument("--no-launcher", action="store_true", help="Do not write ~/.local/bin/ask-code")
+    ap.add_argument("--no-launcher", action="store_true", help="Do not write ~/.local/bin/localpilot")
     ap.add_argument("--purge-project", action="store_true",
-                    help="Also remove project-level AskCode entries from the current directory's .idea")
+                    help="Also remove project-level LocalPilot entries from the current directory's .idea")
     args = ap.parse_args()
 
     # (Optional) ensure launcher
@@ -349,19 +349,19 @@ def main():
         if args.purge_project:
             n = purge_project_shadow(Path.cwd())
             if n:
-                info(f"Removed {n} project-level AskCode definition(s).")
-        print("\nDone." if changed else "\nAskCode not found in user-level config.")
+                info(f"Removed {n} project-level LocalPilot definition(s).")
+        print("\nDone." if changed else "\nLocalPilot not found in user-level config.")
         print("Restart the IDE(s).")
         return
 
     # install
     if not roots:
         warn("No JetBrains/Android Studio user config folders found under ~/Library/Application Support.")
-        print("You can still use AskCode by running the launcher directly:")
+        print("You can still use LocalPilot by running the launcher directly:")
         print(f'  {LAUNCHER} --selection "hello" --file demo.txt')
         return
 
-    print("Writing AskCode tool into these configs:")
+    print("Writing LocalPilot tool into these configs:")
     for r in roots:
         print(" -", r)
         # Write to *both* schemas so it’s picked up regardless of IDE version
@@ -377,13 +377,13 @@ def main():
     if args.purge_project:
         n = purge_project_shadow(Path.cwd())
         if n:
-            info(f"\nRemoved {n} project-level AskCode definition(s) that could shadow the user-level tool.")
+            info(f"\nRemoved {n} project-level LocalPilot definition(s) that could shadow the user-level tool.")
 
     print("\nAll set. Fully QUIT and relaunch the IDE(s), then check:")
-    print("Preferences → Tools → External Tools → AskCode")
+    print("Preferences → Tools → External Tools → LocalPilot")
     print("Program:", LAUNCHER)
     print("Parameters:", ARGS)
-    print("\nMenu: Tools → External Tools → AskCode")
+    print("\nMenu: Tools → External Tools → LocalPilot")
 
 
 if __name__ == "__main__":
