@@ -12,16 +12,17 @@ class ChatWorker(QThread):
     done = Signal()
     error = Signal(str)
 
-    def __init__(self, messages: list[dict]):
+    def __init__(self, messages: list[dict], model: str | None = None):
         super().__init__()
         self.messages = messages
+        self.model = model or MODEL
 
     def run(self):
         try:
             with requests.post(
                 OLLAMA_CHAT_URL,
                 json={
-                    "model": MODEL,
+                    "model": self.model,
                     "messages": self.messages,
                     "options": {
                         "temperature": float(TEMP),
