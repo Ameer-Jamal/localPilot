@@ -1,6 +1,15 @@
 """Runtime configuration for the local assistant."""
+import os
+
 # Model/runtime
-MODEL = "qwen2.5-coder:14b"
+# Comma-separated list of available models. Default falls back to ``qwen2.5-coder:14b``.
+MODEL_LIST = [
+    m.strip()
+    for m in os.environ.get("MODEL_LIST", "qwen2.5-coder:14b").split(",")
+    if m.strip()
+]
+# Default model, overridable via ``MODEL`` env var or first entry in ``MODEL_LIST``.
+MODEL = os.environ.get("MODEL", MODEL_LIST[0])
 TEMP = 0.2
 
 # Ollama HTTP endpoints

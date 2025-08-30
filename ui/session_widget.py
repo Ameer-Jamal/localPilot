@@ -2,12 +2,20 @@ import json
 import time
 from html import escape
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QStatusBar,
+    QComboBox,
+)
 from markdown_it import MarkdownIt
 
-from config import MODEL
+from config import MODEL, MODEL_LIST
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
 from utils import ACTIONS, lang_hint
@@ -29,6 +37,9 @@ class SessionWidget(QWidget):
         # Conversation state
         self._build_system_message()
 
+        # Settings for persisting model selection
+        self._settings = QSettings("AskAboutSelection", "Assistant")
+
         # Top bar
         top = QHBoxLayout()
         top.addWidget(self._mk_btn("Explain", lambda: self.auto_run(ACTIONS["explain"])))
@@ -36,9 +47,21 @@ class SessionWidget(QWidget):
         top.addWidget(self._mk_btn("Tests", lambda: self.auto_run(ACTIONS["tests"])))
         top.addWidget(self._mk_btn("Performance", lambda: self.auto_run(ACTIONS["performance"])))
         top.addStretch(1)
-        self.model_lbl = QLabel(f"Model: {MODEL}")
+
+        # Model selector and label
+        self.model_lbl = QLabel()
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(MODEL_LIST)
+
+        saved_model = self._settings.value("chat/model", MODEL, type=str)
+        if saved_model in MODEL_LIST:
+            self.model_combo.setCurrentText(saved_model)
+        self._on_model_changed(self.model_combo.currentText())
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+
         top.addWidget(self.model_lbl)
+        top.addWidget(self.model_combo)
 
         # Transcript view
         self.view = QWebEngineView()
@@ -124,7 +147,7 @@ class SessionWidget(QWidget):
         self._append_role_block("assistant", "")
         self._flush_render(True)
 
-        self._worker = ChatWorker(self.history)
+        self._worker = ChatWorker(self.history, model=self.model_combo.currentText())
         self._worker.chunk.connect(self._on_chunk)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
@@ -135,6 +158,10 @@ class SessionWidget(QWidget):
         self._render_buf.append(s)
         self._assistant_md += s
         self._chars += len(s)
+
+    def _on_model_changed(self, model: str):
+        self.model_lbl.setText(f"Model: {model}")
+        self._settings.setValue("chat/model", model)
 
     def _on_error(self, msg: str):
         self._render_buf.append(f"\n\n**Error:** {msg}\n")
