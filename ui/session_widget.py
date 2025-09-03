@@ -54,11 +54,15 @@ class SessionWidget(QWidget):
         self.model_combo = QComboBox()
         self.model_combo.addItems(MODEL_LIST)
 
-        saved_model = self._settings.value("chat/model", MODEL, type=str)
-        if saved_model in MODEL_LIST:
-            self.model_combo.setCurrentText(saved_model)
-        self._on_model_changed(self.model_combo.currentText())
-        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        if MODEL_LIST:
+            saved_model = self._settings.value("chat/model", MODEL, type=str)
+            if saved_model in MODEL_LIST:
+                self.model_combo.setCurrentText(saved_model)
+            self._on_model_changed(self.model_combo.currentText())
+            self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        else:
+            self.model_combo.setEnabled(False)
+            self.model_lbl.setText("No Ollama models running")
 
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
@@ -136,18 +140,24 @@ class SessionWidget(QWidget):
         self._flush_render(True)
 
     def _chat(self):
+        model = self.model_combo.currentText().strip()
+        if not model:
+            self.status.showMessage("No Ollama model available")
+            return
+
         if self._worker and self._worker.isRunning():
             self._worker.terminate()
 
         self._assistant_md = ""
         self._render_buf = []
-        self.status.showMessage("Generating…")
+        self.status.showMessage(f"Generating with {model}…")
         self._start_ts = time.time()
         self._chars = 0
         self._append_role_block("assistant", "")
         self._flush_render(True)
 
-        self._worker = ChatWorker(self.history, model=self.model_combo.currentText())
+        self._active_model = model
+        self._worker = ChatWorker(self.history, model=model)
         self._worker.chunk.connect(self._on_chunk)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
@@ -172,7 +182,10 @@ class SessionWidget(QWidget):
         self.history.append({"role": "assistant", "content": self._assistant_md})
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
-        self.status.showMessage(f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps")
+        model = getattr(self, "_active_model", self.model_combo.currentText())
+        self.status.showMessage(
+            f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps | {model}"
+        )
 
     # rendering
     def _append_code_context_block(self):

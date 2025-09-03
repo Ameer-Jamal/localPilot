@@ -30,6 +30,36 @@ local LLM about that exact selection.
 * A model pulled in Ollama (e.g. `llama3.1`, `qwen2.5-coder`, `mistral`).
   Configure model/URL in `ollama_client.py`.
 
+### Running multiple models
+
+LocalPilot lists models that are currently **running**. If none are active you'll see “No Ollama models running” and chat is disabled.
+
+1. Allow more than one model to stay loaded:
+
+   ```bash
+   OLLAMA_MAX_LOADED_MODELS=2 ollama serve
+   ```
+
+2. Start (or "warm up") each model you plan to use:
+
+   ```bash
+   ollama run llama3 &
+   ollama run qwen2.5-coder &
+   ```
+
+3. Inspect which models are running:
+
+   ```bash
+   ollama ps
+   # or
+   curl http://localhost:11434/api/ps
+   ```
+
+   LocalPilot queries the same `/ps` endpoint for the model selector.
+
+You can also override the selector with a comma-separated `MODEL_LIST` environment variable if you prefer a static list.
+During chat the terminal running LocalPilot prints the requested model and the model reported by Ollama so you can verify which one handled the response.
+
 ---
 
 ## Quick start (90 seconds)

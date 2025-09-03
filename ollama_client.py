@@ -8,6 +8,12 @@ OLLAMA_URL = f"{OLLAMA_BASE_URL}/generate"
 
 def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
     model = model or MODEL
+    if not model:
+        out_q.put("\n[Error] No model specified\n")
+        out_q.put(None)
+        return
+
+    print(f"[stream_ollama] requesting model={model}")
     try:
         with requests.post(
             OLLAMA_URL,
@@ -22,11 +28,15 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
             timeout=180,
         ) as r:
             r.raise_for_status()
+            confirmed = False
             for line in r.iter_lines(decode_unicode=True):
                 if not line:
                     continue
                 try:
                     obj = json.loads(line)
+                    if not confirmed and obj.get("model"):
+                        print(f"[stream_ollama] server model={obj['model']}")
+                        confirmed = True
                     chunk = obj.get("response", "")
                 except json.JSONDecodeError:
                     chunk = line
