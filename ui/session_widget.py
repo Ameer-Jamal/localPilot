@@ -128,14 +128,15 @@ class SessionWidget(QWidget):
 
     # conversation plumbing
     def _build_system_message(self):
-        self.history = [{
-            "role": "system",
-            "content": (
-                "You are a senior software engineer. Be concise and precise. "
-                "Pinned code context follows.\n\n"
+        base = "You are a senior software engineer. Be concise and precise."
+        if self.code.strip():
+            content = (
+                base + " Pinned code context follows.\n\n" +
                 f"```{self.lang}\n{self.code}\n```"
-            ),
-        }]
+            )
+        else:
+            content = base
+        self.history = [{"role": "system", "content": content}]
 
     def _user_say(self, text: str):
         self.history.append({"role": "user", "content": text})
@@ -191,6 +192,8 @@ class SessionWidget(QWidget):
 
     # rendering
     def _append_code_context_block(self):
+        if not self.code.strip():
+            return
         lang = self.lang or "plaintext"
         self._html.append('<div class="role">system</div>')
         self._html.append(
