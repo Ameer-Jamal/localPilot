@@ -44,8 +44,7 @@ class SessionWidget(QWidget):
         top = QHBoxLayout()
         for action_key, action_value in ACTIONS.items():
             button_name = action_key.capitalize()
-            top.addWidget(self._mk_btn(button_name, lambda key=action_key: self.auto_run(ACTIONS[key])))
-
+            top.addWidget(self._mk_btn(button_name, self.create_button_handler(action_key)))
         top.addStretch(1)
 
         # Model selector and label
@@ -114,6 +113,9 @@ class SessionWidget(QWidget):
         self._chars = 0
 
         self._flush_render(force=True)
+
+    def create_button_handler(self, key):
+        return lambda: self.auto_run(ACTIONS[key])
 
     # public API
     def auto_run(self, instruction: str):
