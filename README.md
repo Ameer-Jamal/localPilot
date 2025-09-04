@@ -28,7 +28,7 @@ local LLM about that exact selection.
 ```
 
 * A model pulled in Ollama (e.g. `llama3.1`, `qwen2.5-coder`, `mistral`).
-  Configure model/URL in `ollama_client.py`.
+  Local Pilot will try and configure the URL and get all the models installed on your machine
 
 ---
 
@@ -53,11 +53,12 @@ What this does:
 ## Using it in the IDE
 
 1. Highlight any code in the editor.
-2. Run **Tools → External Tools → LocalPilot** (or bind a keyboard shortcut).
+2. Run **Tools → External Tools → LocalPilot** (or bind a keyboard shortcut or use global search by pressing shift twice and searching for "LocalPilot").
 3. A small chat window opens:
 
     * The pinned **code context** is at the top (collapsible).
     * Type your question (Cmd/Ctrl+Enter to send).
+    * Or use the built in quick commands
     * Use **Stop** to cancel generation.
     * **Copy** appears on code blocks (always visible; shows “Copied!” on click).
     * **Pin** (top-left) keeps the window floating above your IDE; state persists.
@@ -150,7 +151,7 @@ Common fixes:
 
 ## Privacy
 
-All inference is local. Your code never leaves your machine—LocalPilot only talks to your local Ollama server.
+All inference is local. Your code never leaves your machine. LocalPilot only talks to your local Ollama server.
 
 ---
 
