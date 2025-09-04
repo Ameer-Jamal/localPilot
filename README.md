@@ -169,4 +169,7 @@ PRs welcome! Please:
 
 ## License
 
-MIT © Ameer Jamal
+Copyright © 2025 Ameer Jamal <br>
+This project is licensed under the [Custom Non-Commercial License](LICENSE) <br>
+This project is open for personal or academic use only.
+Commercial use, redistribution, or integration into proprietary products is prohibited without prior written permission.
