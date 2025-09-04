@@ -65,6 +65,7 @@ What this does:
 
 Each new code selection opens a **new tab** so conversations don’t mix. Closing the last tab closes the window (with a
 “Are you sure?” safety prompt if something is still generating).
+Note: Chats are not persistant they are stored in memory, persistant chats coming soon...
 
 ---
 
