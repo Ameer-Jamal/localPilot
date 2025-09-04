@@ -173,8 +173,7 @@ class MainWindow(QMainWindow):
             if msg.get("cmd") == "open_session":
                 code = msg.get("code", "")
                 file_name = msg.get("file", "selection")
-                if code.strip():
-                    self.new_tab(code, file_name, select=True)
-                    self.bring_to_front()
+                self.new_tab(code, file_name, select=True)
+                self.bring_to_front()
         finally:
             sock.disconnectFromServer()

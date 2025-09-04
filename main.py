@@ -65,17 +65,17 @@ def parse_args():
     p.add_argument("--filepath")  # absolute path
 
     # absolute offsets (accept strings; convert later to avoid argparse aborts)
-    p.add_argument("--sel-start")
-    p.add_argument("--sel-end")
+    p.add_argument("--sel-start", nargs="?")
+    p.add_argument("--sel-end", nargs="?")
 
     # line/column (1-based; accept strings; convert later)
-    p.add_argument("--sel-start-line")
-    p.add_argument("--sel-start-col")
-    p.add_argument("--sel-end-line")
-    p.add_argument("--sel-end-col")
+    p.add_argument("--sel-start-line", nargs="?")
+    p.add_argument("--sel-start-col", nargs="?")
+    p.add_argument("--sel-end-line", nargs="?")
+    p.add_argument("--sel-end-col", nargs="?")
 
     # raw selection text
-    p.add_argument("--selection")
+    p.add_argument("--selection", nargs="?")
     return p.parse_args()
 
 
@@ -112,10 +112,6 @@ def get_selection(args) -> tuple[str, str]:
     if not sys.stdin.isatty():
         return sys.stdin.read(), title
 
-    # 5) whole file as last resort
-    if file_text:
-        return file_text, title
-
     return "", title
 
 
@@ -140,9 +136,6 @@ def send_to_running_instance(code: str, file_name: str) -> bool:
 def main():
     args = parse_args()
     code, display_name = get_selection(args)
-    if not code.strip():
-        print("No selection provided.", file=sys.stderr)
-        sys.exit(1)
 
     # If an instance is running, hand off via IPC and exit.
     if send_to_running_instance(code, display_name):

@@ -51,13 +51,7 @@ def main():
         )
     if not sel and not sys.stdin.isatty():
         sel = sys.stdin.read()
-    if not sel and args.filepath and os.path.exists(args.filepath):
-        with open(args.filepath, "r", encoding="utf-8", errors="replace") as f:
-            sel = f.read()
-
-    if not sel.strip():
-        print("No selection provided.", file=sys.stderr)
-        sys.exit(1)
+    # If no selection was found, proceed with an empty string to allow general chat mode.
 
     # Try to hand off to an existing window (single-instance UX)
     if send_open_session(sel, label):
