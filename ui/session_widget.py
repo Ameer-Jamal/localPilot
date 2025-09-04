@@ -2,12 +2,20 @@ import json
 import time
 from html import escape
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QStatusBar
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QStatusBar,
+    QComboBox,
+)
 from markdown_it import MarkdownIt
 
-from config import MODEL
+from config import MODEL, MODEL_LIST
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
 from utils import ACTIONS, lang_hint
@@ -29,16 +37,38 @@ class SessionWidget(QWidget):
         # Conversation state
         self._build_system_message()
 
+        # Settings for persisting model selection
+        self._settings = QSettings("AskAboutSelection", "Assistant")
+
         # Top bar
         top = QHBoxLayout()
-        top.addWidget(self._mk_btn("Explain", lambda: self.auto_run(ACTIONS["explain"])))
-        top.addWidget(self._mk_btn("Refactor (diff)", lambda: self.auto_run(ACTIONS["refactor"])))
-        top.addWidget(self._mk_btn("Tests", lambda: self.auto_run(ACTIONS["tests"])))
-        top.addWidget(self._mk_btn("Performance", lambda: self.auto_run(ACTIONS["performance"])))
+        for action_key, action_value in ACTIONS.items():
+            button_name = action_key.capitalize()
+            top.addWidget(self._mk_btn(button_name, lambda key=action_key: self.auto_run(ACTIONS[key])))
+
         top.addStretch(1)
-        self.model_lbl = QLabel(f"Model: {MODEL}")
+
+        # Model selector and label
+        self.model_lbl = QLabel()
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
+        self.model_lbl.setText("Current Modal")
+
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(MODEL_LIST)
+
+        if MODEL_LIST:
+            saved_model = self._settings.value("chat/model", MODEL, type=str)
+            # pick saved if available, else fall back to MODEL, else first item
+            preferred = next((model for model in (saved_model, MODEL) if model in MODEL_LIST), MODEL_LIST[0])
+            self.model_combo.setCurrentText(preferred)
+            self.model_combo.currentTextChanged.connect(self._on_model_changed)
+            self._on_model_changed(self.model_combo.currentText())
+        else:
+            self.model_combo.setEnabled(False)
+            self.status.showMessage("No Ollama models found")
+
         top.addWidget(self.model_lbl)
+        top.addWidget(self.model_combo)
 
         # Transcript view
         self.view = QWebEngineView()
@@ -113,18 +143,24 @@ class SessionWidget(QWidget):
         self._flush_render(True)
 
     def _chat(self):
+        model = self.model_combo.currentText().strip()
+        if not model:
+            self.status.showMessage("No Ollama models found")
+            return
+
         if self._worker and self._worker.isRunning():
             self._worker.terminate()
 
         self._assistant_md = ""
         self._render_buf = []
-        self.status.showMessage("Generating…")
+        self.status.showMessage(f"Generating with {model}…")
         self._start_ts = time.time()
         self._chars = 0
         self._append_role_block("assistant", "")
         self._flush_render(True)
 
-        self._worker = ChatWorker(self.history)
+        self._active_model = model
+        self._worker = ChatWorker(self.history, model=model)
         self._worker.chunk.connect(self._on_chunk)
         self._worker.error.connect(self._on_error)
         self._worker.done.connect(self._on_done)
@@ -136,6 +172,9 @@ class SessionWidget(QWidget):
         self._assistant_md += s
         self._chars += len(s)
 
+    def _on_model_changed(self, model: str):
+        self._settings.setValue("chat/model", model)
+
     def _on_error(self, msg: str):
         self._render_buf.append(f"\n\n**Error:** {msg}\n")
 
@@ -145,7 +184,10 @@ class SessionWidget(QWidget):
         self.history.append({"role": "assistant", "content": self._assistant_md})
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
-        self.status.showMessage(f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps")
+        model = getattr(self, "_active_model", self.model_combo.currentText())
+        self.status.showMessage(
+            f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps | {model}"
+        )
 
     # rendering
     def _append_code_context_block(self):
