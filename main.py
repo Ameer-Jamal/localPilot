@@ -65,17 +65,17 @@ def parse_args():
     p.add_argument("--filepath")  # absolute path
 
     # absolute offsets (accept strings; convert later to avoid argparse aborts)
-    p.add_argument("--sel-start")
-    p.add_argument("--sel-end")
+    p.add_argument("--sel-start", nargs="?")
+    p.add_argument("--sel-end", nargs="?")
 
     # line/column (1-based; accept strings; convert later)
-    p.add_argument("--sel-start-line")
-    p.add_argument("--sel-start-col")
-    p.add_argument("--sel-end-line")
-    p.add_argument("--sel-end-col")
+    p.add_argument("--sel-start-line", nargs="?")
+    p.add_argument("--sel-start-col", nargs="?")
+    p.add_argument("--sel-end-line", nargs="?")
+    p.add_argument("--sel-end-col", nargs="?")
 
     # raw selection text
-    p.add_argument("--selection")
+    p.add_argument("--selection", nargs="?")
     return p.parse_args()
 
 
