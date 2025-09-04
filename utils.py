@@ -1,10 +1,11 @@
 """Small utilities and static prompts."""
 
 ACTIONS = {
-    "explain": "Explain what this code does, list concrete risks, and breakdown the flow",
-    "refactor": "Refactor for readability. Follow professional best practices like SRP and Preserve behavior.",
-    "tests": "Generate focused unit tests with Arrange-Act-Assert and edge cases.",
-    "performance": "Rewrite for maximum performance gain without changing functionality",
+    "explain": "Explain what this code does, list concrete risks, and break down the flow.",
+    "refactor": "Refactor for readability. Follow professional best practices like SRP (Single Responsibility Principle) and Preserve behavior.",
+    "tests": "Generate focused unit tests with Arrange-Act-Assert structure and cover edge cases.",
+    "performance": "Rewrite for maximum performance gain without changing functionality.",
+    "simplify": "Simplify the code to make it more readable and easier to understand while preserving its original functionality."
 }
 
 

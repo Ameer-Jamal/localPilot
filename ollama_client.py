@@ -1,10 +1,12 @@
 import json
 import queue
+
 import requests
 
 from config import MODEL, OLLAMA_BASE_URL, TEMP
 
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/generate"
+
 
 def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
     model = model or MODEL
@@ -16,16 +18,16 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
     print(f"[stream_ollama] requesting model={model}")
     try:
         with requests.post(
-            OLLAMA_URL,
-            headers={"Content-Type": "application/json"},
-            data=json.dumps({
-                "model": model,
-                "prompt": prompt,
-                "options": {"temperature": TEMP},
-                "stream": True,
-            }),
-            stream=True,
-            timeout=180,
+                OLLAMA_URL,
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({
+                    "model": model,
+                    "prompt": prompt,
+                    "options": {"temperature": TEMP},
+                    "stream": True,
+                }),
+                stream=True,
+                timeout=180,
         ) as r:
             r.raise_for_status()
             confirmed = False

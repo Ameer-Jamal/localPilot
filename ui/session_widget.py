@@ -42,27 +42,30 @@ class SessionWidget(QWidget):
 
         # Top bar
         top = QHBoxLayout()
-        top.addWidget(self._mk_btn("Explain", lambda: self.auto_run(ACTIONS["explain"])))
-        top.addWidget(self._mk_btn("Refactor (diff)", lambda: self.auto_run(ACTIONS["refactor"])))
-        top.addWidget(self._mk_btn("Tests", lambda: self.auto_run(ACTIONS["tests"])))
-        top.addWidget(self._mk_btn("Performance", lambda: self.auto_run(ACTIONS["performance"])))
+        for action_key, action_value in ACTIONS.items():
+            button_name = action_key.capitalize()
+            top.addWidget(self._mk_btn(button_name, lambda key=action_key: self.auto_run(ACTIONS[key])))
+
         top.addStretch(1)
 
         # Model selector and label
         self.model_lbl = QLabel()
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
+        self.model_lbl.setText("Current Modal")
+
         self.model_combo = QComboBox()
         self.model_combo.addItems(MODEL_LIST)
 
         if MODEL_LIST:
             saved_model = self._settings.value("chat/model", MODEL, type=str)
-            if saved_model in MODEL_LIST:
-                self.model_combo.setCurrentText(saved_model)
-            self._on_model_changed(self.model_combo.currentText())
+            # pick saved if available, else fall back to MODEL, else first item
+            preferred = next((model for model in (saved_model, MODEL) if model in MODEL_LIST), MODEL_LIST[0])
+            self.model_combo.setCurrentText(preferred)
             self.model_combo.currentTextChanged.connect(self._on_model_changed)
+            self._on_model_changed(self.model_combo.currentText())
         else:
             self.model_combo.setEnabled(False)
-            self.model_lbl.setText("No Ollama models running")
+            self.status.showMessage("No Ollama models found")
 
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
@@ -142,7 +145,7 @@ class SessionWidget(QWidget):
     def _chat(self):
         model = self.model_combo.currentText().strip()
         if not model:
-            self.status.showMessage("No Ollama model available")
+            self.status.showMessage("No Ollama models found")
             return
 
         if self._worker and self._worker.isRunning():
@@ -170,7 +173,6 @@ class SessionWidget(QWidget):
         self._chars += len(s)
 
     def _on_model_changed(self, model: str):
-        self.model_lbl.setText(f"Model: {model}")
         self._settings.setValue("chat/model", model)
 
     def _on_error(self, msg: str):
