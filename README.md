@@ -2,6 +2,7 @@
 
 **LocalPilot** lets you highlight code in IntelliJ, PyCharm, WebStorm, or Android Studio and instantly chat with a fully
 local LLM about that exact selection.
+<img width="1152" height="953" alt="image" src="https://github.com/user-attachments/assets/5bb2286b-8b5b-47cd-bbd2-f1181817a0a7" />
 
 - 🧠 **Local & free**: uses your **Ollama** on `localhost` (no cloud, no tokens)
 - 🔒 **Private by design**: your code never leaves your machine
