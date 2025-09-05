@@ -11,18 +11,18 @@ from PySide6.QtWidgets import (
 
 from ui.session_widget import SessionWidget
 
-SOCKET_NAME = "AskAboutSelectionSocket"
+SOCKET_NAME = "LocalPilot"
 
 
 class MainWindow(QMainWindow):
     """Holds tabs; manages IPC; persistent Always-On-Top toggle with visible status."""
     def __init__(self, code: str, file_name: str):
         super().__init__()
-        self.setWindowTitle("Ask about selection")
+        self.setWindowTitle("Local Pilot - Ameer J.")
         self.resize(1100, 820)
 
         # Settings
-        self._settings = QSettings("AskAboutSelection", "Assistant")
+        self._settings = QSettings("LocalPilot", "Assistant")
 
         # Tabs
         self.tabs = QTabWidget()
