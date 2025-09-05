@@ -15,7 +15,7 @@ OLLAMA_TAGS_URL = f"{OLLAMA_BASE_URL}/tags"
 # Model/runtime
 
 
-def _fetch_models() -> list[str]:
+def fetch_ollama_models() -> list[str]:
     """Return a list of available models.
 
     Preference order:
@@ -46,11 +46,10 @@ def _fetch_models() -> list[str]:
     return []
 
 
-MODEL_LIST = _fetch_models()
+MODEL_LIST = fetch_ollama_models()
 
 MODEL = MODEL_LIST[0] if MODEL_LIST else []
 TEMP = 0.2
-
 
 # Context window for chat requests (increase if you pin long code)
 NUM_CTX = 16384  # adjust build/model supports it

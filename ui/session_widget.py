@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 from markdown_it import MarkdownIt
 
-from config import MODEL, MODEL_LIST
+from config import fetch_ollama_models, MODEL
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
 from utils import ACTIONS, lang_hint
@@ -42,6 +42,10 @@ class SessionWidget(QWidget):
         # Settings for persisting model selection
         self._settings = QSettings("AskAboutSelection", "Assistant")
 
+        # Initialize Status bar FIRST (as moved in previous fix)
+        self.status = QStatusBar()
+        self.status.showMessage("Ready")
+
         # Top bar
         top = QHBoxLayout()
         for action_key, action_value in ACTIONS.items():
@@ -52,24 +56,19 @@ class SessionWidget(QWidget):
         # Model selector and label
         self.model_lbl = QLabel()
         self.model_lbl.setStyleSheet("color:#9aa5b1;")
-        self.model_lbl.setText("Current Modal")
+        self.model_lbl.setText("Current Model")
 
         self.model_combo = QComboBox()
-        self.model_combo.addItems(MODEL_LIST)
 
-        if MODEL_LIST:
-            saved_model = self._settings.value("chat/model", MODEL, type=str)
-            # pick saved if available, else fall back to MODEL, else first item
-            preferred = next((model for model in (saved_model, MODEL) if model in MODEL_LIST), MODEL_LIST[0])
-            self.model_combo.setCurrentText(preferred)
-            self.model_combo.currentTextChanged.connect(self._on_model_changed)
-            self._on_model_changed(self.model_combo.currentText())
-        else:
-            self.model_combo.setEnabled(False)
-            self.status.showMessage("No Ollama models found")
+        # Refresh button
+        self.refresh_btn = self._mk_btn("Refresh", self._setup_model_selector)
+        self.refresh_btn.setVisible(False)
 
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
+        top.addWidget(self.refresh_btn)
+
+        self._setup_model_selector()
 
         # Transcript view
         self.view = QWebEngineView()
@@ -87,10 +86,6 @@ class SessionWidget(QWidget):
         bottom.addWidget(self.input, 1)
         bottom.addWidget(stop_btn)
         bottom.addWidget(send_btn)
-
-        # Status bar
-        self.status = QStatusBar()
-        self.status.showMessage("Ready")
 
         # Root layout
         root = QVBoxLayout(self)
@@ -115,6 +110,46 @@ class SessionWidget(QWidget):
         self._chars = 0
 
         self._flush_render(force=True)
+
+    def _get_current_available_models(self) -> list[str]:
+        """
+        Fetches the current list of Ollama models by calling the function
+        from config.py.
+        """
+        return fetch_ollama_models()
+
+    def _setup_model_selector(self):
+        """
+        Configures the model combobox and refresh button based on currently
+        available Ollama models.
+        """
+        current_model_list = self._get_current_available_models()
+        try:
+            self.model_combo.currentTextChanged.disconnect(self._on_model_changed)
+        except RuntimeError:
+            pass
+
+        self.model_combo.clear()
+
+        if current_model_list:
+            self.model_combo.addItems(current_model_list)
+            # Try to restore saved model or fall back to default/first available
+            # Use the MODEL from config.py as the application-wide default if not saved
+            saved_model = self._settings.value("chat/model", MODEL, type=str)
+            preferred = next((model for model in (saved_model, MODEL) if model in current_model_list),
+                             current_model_list[0])
+            self.model_combo.setCurrentText(preferred)
+            self.model_combo.setEnabled(True)
+            self.model_combo.currentTextChanged.connect(self._on_model_changed)
+            self._on_model_changed(self.model_combo.currentText())
+            self.status.showMessage("Ready")
+            self.refresh_btn.setVisible(False)
+        else:
+            self.model_combo.addItem("No Ollama Models Found")
+            self.model_combo.setCurrentIndex(0)
+            self.model_combo.setEnabled(False)
+            self.status.showMessage("No Ollama models found. Click Refresh to check again.")
+            self.refresh_btn.setVisible(True)
 
     def create_button_handler(self, key):
         return lambda: self.auto_run(ACTIONS[key])
@@ -149,8 +184,8 @@ class SessionWidget(QWidget):
 
     def _chat(self):
         model = self.model_combo.currentText().strip()
-        if not model:
-            self.status.showMessage("No Ollama models found")
+        if not model or model == "No Ollama Models Found":  # Check for the dummy text
+            self.status.showMessage("No Ollama models available to chat with.")
             return
 
         if self._worker and self._worker.isRunning():
