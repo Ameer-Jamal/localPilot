@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import time
 from html import escape
 
@@ -17,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 from markdown_it import MarkdownIt
 
-from config import fetch_ollama_models, MODEL
+from config import fetch_ollama_models, MODEL, is_ollama_running
 from ollama_client import warm_up_model
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
@@ -65,9 +68,14 @@ class SessionWidget(QWidget):
         self.refresh_btn = self._mk_btn("Refresh", self._setup_model_selector)
         self.refresh_btn.setVisible(False)
 
+        # Run Ollama button
+        self.run_ollama_btn = self._mk_btn("Run Ollama", self._run_ollama_server)
+        self.run_ollama_btn.setVisible(False)
+
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
         top.addWidget(self.refresh_btn)
+        top.addWidget(self.run_ollama_btn)
 
         self._setup_model_selector()
         self.warm_up()
@@ -146,12 +154,42 @@ class SessionWidget(QWidget):
             self._on_model_changed(self.model_combo.currentText())
             self.status.showMessage("Ready")
             self.refresh_btn.setVisible(False)
+            self.run_ollama_btn.setVisible(False)
         else:
+            server_up = is_ollama_running()
             self.model_combo.addItem("No Ollama Models Found")
             self.model_combo.setCurrentIndex(0)
             self.model_combo.setEnabled(False)
-            self.status.showMessage("No Ollama models found. Click Refresh to check again.")
+            if server_up:
+                self.status.showMessage("No Ollama models found. Click Refresh to check again.")
+            else:
+                self.status.showMessage("Ollama server not running. Click Run Ollama to start it.")
             self.refresh_btn.setVisible(True)
+            self.run_ollama_btn.setVisible(not server_up)
+
+    def _run_ollama_server(self):
+        """Attempt to start the Ollama server with predefined settings."""
+        env = os.environ.copy()
+        env.update({
+            "OLLAMA_NUM_PARALLEL": "2",
+            "OLLAMA_MAX_LOADED_MODELS": "2",
+            "OLLAMA_FLASH_ATTENTION": "1",
+            "OLLAMA_KV_CACHE_TYPE": "q8_0",
+        })
+        cmd = shutil.which("ollama") or "/opt/homebrew/opt/ollama/bin/ollama"
+        try:
+            subprocess.Popen(
+                [cmd, "serve"],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self.status.showMessage("Ollama server starting…")
+            self.run_ollama_btn.setVisible(False)
+            QTimer.singleShot(2000, self._setup_model_selector)
+        except Exception as exc:
+            self.status.showMessage(f"Failed to start Ollama: {exc}")
 
     def create_button_handler(self, key):
         return lambda: self.auto_run(ACTIONS[key])

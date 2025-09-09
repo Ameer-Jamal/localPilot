@@ -68,3 +68,20 @@ def test_config_initial_no_model(monkeypatch):
     cfg = load_config(monkeypatch, lambda *a, **k: FakeResponse())
     assert cfg.MODEL_LIST == []
     assert cfg.MODEL == []
+
+
+def test_is_ollama_running_true(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    cfg = load_config(monkeypatch, lambda *a, **k: FakeResponse())
+    assert cfg.is_ollama_running() is True
+
+
+def test_is_ollama_running_false(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("fail")
+
+    cfg = load_config(monkeypatch, boom)
+    assert cfg.is_ollama_running() is False
