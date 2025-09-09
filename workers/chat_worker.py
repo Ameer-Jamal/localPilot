@@ -18,6 +18,11 @@ class ChatWorker(QThread):
         super().__init__()
         self.messages = messages
         self.model = model or MODEL
+        self._stop_event = threading.Event()
+
+    def stop(self) -> None:
+        """Request the worker to stop streaming."""
+        self._stop_event.set()
 
     def _build_prompt(self) -> str:
         parts: list[str] = []
@@ -35,15 +40,20 @@ class ChatWorker(QThread):
         prompt = self._build_prompt()
         q: queue.Queue[str | None] = queue.Queue()
 
-        def worker():
-            stream_ollama(prompt, q, model=self.model)
+        def worker() -> None:
+            stream_ollama(prompt, q, model=self.model, stop_event=self._stop_event)
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
 
         try:
             while True:
-                chunk = q.get()
+                try:
+                    chunk = q.get(timeout=0.1)
+                except queue.Empty:
+                    if self._stop_event.is_set():
+                        break
+                    continue
                 if chunk is None:
                     break
                 if chunk.startswith("[Error]") or chunk.startswith("\n[Error]"):
@@ -53,5 +63,6 @@ class ChatWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
         finally:
+            self._stop_event.set()
             t.join()
             self.done.emit()

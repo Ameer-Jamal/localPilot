@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+from typing import Optional
 
 import requests
 
@@ -11,10 +12,15 @@ from config import MODEL, OLLAMA_BASE_URL, TEMP
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/generate"
 
 
-def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
+def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None,
+                  stop_event: Optional[threading.Event] = None) -> None:
     model = model or MODEL
     if not model:
         out_q.put("\n[Error] No model specified\n")
+        out_q.put(None)
+        return
+
+    if stop_event and stop_event.is_set():
         out_q.put(None)
         return
 
@@ -35,6 +41,8 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
             r.raise_for_status()
             confirmed = False
             for line in r.iter_lines(decode_unicode=True):
+                if stop_event and stop_event.is_set():
+                    break
                 if not line:
                     continue
                 try:

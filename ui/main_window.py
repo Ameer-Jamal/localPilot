@@ -148,7 +148,8 @@ class MainWindow(QMainWindow):
             return
         try:
             if getattr(w, "_worker", None) and w._worker.isRunning():
-                w._worker.terminate()
+                w._worker.stop()
+                w._worker.wait()
         except Exception:
             pass
         self.tabs.removeTab(index)
