@@ -235,7 +235,8 @@ class SessionWidget(QWidget):
             return
 
         if self._worker and self._worker.isRunning():
-            self._worker.terminate()
+            self._worker.stop()
+            self._worker.wait()
 
         self._assistant_md = ""
         self._render_buf = []
@@ -330,7 +331,8 @@ class SessionWidget(QWidget):
     def _stop_generation(self):
         if self._worker and self._worker.isRunning():
             try:
-                self._worker.terminate()
+                self._worker.stop()
+                self._worker.wait()
             except Exception:
                 pass
             self._worker = None
