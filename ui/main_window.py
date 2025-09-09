@@ -123,7 +123,9 @@ class MainWindow(QMainWindow):
 
     def _focus_current(self):
         w = self.tabs.currentWidget()
-        if w and hasattr(w, "input"):
+        if w and hasattr(w, "focus_input"):
+            w.focus_input()
+        elif w and hasattr(w, "input"):
             w.input.setFocus(Qt.ActiveWindowFocusReason)
 
     # Tabs
