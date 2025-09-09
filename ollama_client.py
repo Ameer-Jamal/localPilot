@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import threading
 
 import requests
 
@@ -50,3 +51,23 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None):
         out_q.put(f"\n[Error] {e}\n")
     finally:
         out_q.put(None)
+
+
+def warm_up_model(model: str | None = None) -> None:
+    """Issue a tiny request in the background to load the model into memory."""
+    model = model or MODEL
+    if not model:
+        return
+
+    def _warm() -> None:
+        try:
+            requests.post(
+                OLLAMA_URL,
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({"model": model, "prompt": "", "stream": False}),
+                timeout=30,
+            ).raise_for_status()
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True).start()
