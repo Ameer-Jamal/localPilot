@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from markdown_it import MarkdownIt
 
 from config import fetch_ollama_models, MODEL
+from ollama_client import warm_up_model
 from resources.html_template import HTML_TEMPLATE
 from ui.input_widget import AutoResizingTextEdit
 from utils import ACTIONS, lang_hint
@@ -69,6 +70,7 @@ class SessionWidget(QWidget):
         top.addWidget(self.refresh_btn)
 
         self._setup_model_selector()
+        self.warm_up()
 
         # Transcript view
         self.view = QWebEngineView()
@@ -163,7 +165,13 @@ class SessionWidget(QWidget):
         self._chat()
 
     def focus_input(self):
+        self.warm_up()
         self.input.setFocus(Qt.TabFocusReason)
+
+    def warm_up(self):
+        model = self.model_combo.currentText().strip()
+        if model and model != "No Ollama Models Found":
+            warm_up_model(model)
 
     # conversation plumbing
     def _build_system_message(self):
