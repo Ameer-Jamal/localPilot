@@ -46,6 +46,16 @@ def fetch_ollama_models() -> list[str]:
     return []
 
 
+def is_ollama_running() -> bool:
+    """Return True if the Ollama server responds, False otherwise."""
+    try:
+        r = requests.get(OLLAMA_TAGS_URL, timeout=1)
+        r.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
 MODEL_LIST = fetch_ollama_models()
 
 MODEL = MODEL_LIST[0] if MODEL_LIST else []
