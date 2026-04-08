@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QStatusBar,
     QComboBox,
+    QDialog,
 )
 from markdown_it import MarkdownIt
 
@@ -32,6 +33,7 @@ from settings_store import (
 )
 from ui.input_widget import AutoResizingTextEdit
 from ui.settings_dialog import SettingsDialog
+from ui.theme import ACCENT_BUTTON_STYLE, PRIMARY_BUTTON_STYLE, SUBTLE_BUTTON_STYLE
 from utils import lang_hint
 from workers.chat_worker import ChatWorker
 
@@ -84,7 +86,11 @@ class SessionWidget(QWidget):
         self.status.showMessage("Ready")
 
         # Top bar
-        top = QHBoxLayout()
+        toolbar = QWidget(self)
+        toolbar.setObjectName("windowHeader")
+        top = QHBoxLayout(toolbar)
+        top.setContentsMargins(14, 12, 14, 12)
+        top.setSpacing(10)
         self._quick_prompt_layout = QHBoxLayout()
         self._quick_prompt_layout.setSpacing(6)
         top.addLayout(self._quick_prompt_layout)
@@ -92,24 +98,25 @@ class SessionWidget(QWidget):
 
         # Model selector and label
         self.model_lbl = QLabel()
-        self.model_lbl.setStyleSheet("color:#9aa5b1;")
-        self.model_lbl.setText("Current Model")
+        self.model_lbl.setProperty("role", "muted")
+        self.model_lbl.setText("Model")
 
         self.model_combo = QComboBox()
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
 
         # Refresh button
-        self.refresh_btn = self._mk_btn("Refresh", self._setup_model_selector)
+        self.refresh_btn = self._mk_btn("Refresh", self._setup_model_selector, variant="subtle")
         self.refresh_btn.setVisible(False)
 
         # Run Ollama button
-        self.run_ollama_btn = self._mk_btn("Run Ollama", self._run_ollama_server)
+        self.run_ollama_btn = self._mk_btn("Start Ollama", self._run_ollama_server, variant="subtle")
         self.run_ollama_btn.setVisible(False)
 
         # Install default model button
-        self.install_model_btn = self._mk_btn("Install Model", self._install_default_model)
+        self.install_model_btn = self._mk_btn("Install Model", self._install_default_model, variant="accent")
         self.install_model_btn.setVisible(False)
 
-        self.settings_btn = self._mk_btn("Settings", self._open_settings_dialog)
+        self.settings_btn = self._mk_btn("Settings", self._open_settings_dialog, variant="subtle")
 
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
@@ -131,19 +138,32 @@ class SessionWidget(QWidget):
 
         # Input row
         bottom = QHBoxLayout()
-        self.input = AutoResizingTextEdit(min_lines=1, max_lines=8)
+        self.input = AutoResizingTextEdit(min_lines=2, max_lines=8)
         self.input.sendRequested.connect(self._send_message_same_tab)
-        send_btn = self._mk_btn("Send", self._send_message_same_tab)
-        stop_btn = self._mk_btn("Stop", self._stop_generation)
+        send_btn = self._mk_btn("Send", self._send_message_same_tab, variant="accent")
+        stop_btn = self._mk_btn("Stop", self._stop_generation, variant="subtle")
         bottom.addWidget(self.input, 1)
         bottom.addWidget(stop_btn)
         bottom.addWidget(send_btn)
 
         # Root layout
         root = QVBoxLayout(self)
-        root.addLayout(top)
-        root.addWidget(self.view, 1)
-        root.addLayout(bottom)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(toolbar)
+        content = QWidget(self)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(14, 14, 14, 0)
+        content_layout.setSpacing(12)
+        content_layout.addWidget(self.view, 1)
+        bottom_wrap = QWidget(content)
+        bottom_wrap.setObjectName("windowHeader")
+        bottom_layout = QHBoxLayout(bottom_wrap)
+        bottom_layout.setContentsMargins(12, 10, 12, 10)
+        bottom_layout.setSpacing(10)
+        bottom_layout.addLayout(bottom, 1)
+        content_layout.addWidget(bottom_wrap)
+        root.addWidget(content, 1)
         root.addWidget(self.status)
 
         # Streaming state
@@ -177,11 +197,7 @@ class SessionWidget(QWidget):
         available Ollama models.
         """
         current_model_list = self._get_current_available_models()
-        try:
-            self.model_combo.currentTextChanged.disconnect(self._on_model_changed)
-        except RuntimeError:
-            pass
-
+        self.model_combo.blockSignals(True)
         self.model_combo.clear()
 
         if current_model_list:
@@ -195,7 +211,6 @@ class SessionWidget(QWidget):
             )
             self.model_combo.setCurrentText(preferred)
             self.model_combo.setEnabled(True)
-            self.model_combo.currentTextChanged.connect(self._on_model_changed)
             self._on_model_changed(self.model_combo.currentText())
             self.status.showMessage("Ready")
             self.refresh_btn.setVisible(False)
@@ -215,6 +230,7 @@ class SessionWidget(QWidget):
             self.refresh_btn.setVisible(True)
             self.run_ollama_btn.setVisible(not server_up)
             self.install_model_btn.setVisible(server_up)
+        self.model_combo.blockSignals(False)
 
     def _run_ollama_server(self):
         """Attempt to start the Ollama server with predefined settings."""
@@ -266,7 +282,8 @@ class SessionWidget(QWidget):
             if widget is not None:
                 widget.deleteLater()
         for label, prompt in self._quick_prompts.items():
-            self._quick_prompt_layout.addWidget(self._mk_btn(label, lambda checked=False, p=prompt: self.auto_run(p)))
+            button = self._mk_btn(label, lambda checked=False, p=prompt: self.auto_run(p), variant="subtle")
+            self._quick_prompt_layout.addWidget(button)
 
     def _open_settings_dialog(self):
         dialog = SettingsDialog(
@@ -274,7 +291,7 @@ class SessionWidget(QWidget):
             quick_prompts=self._quick_prompts,
             parent=self,
         )
-        if dialog.exec() != dialog.Accepted:
+        if dialog.exec() != QDialog.Accepted:
             return
         self._settings_store.save_runtime_settings(dialog.get_runtime_settings())
         self._settings_store.save_quick_prompts(dialog.get_quick_prompts())
@@ -490,13 +507,14 @@ class SessionWidget(QWidget):
         return self.code == code and self.file_name == file_name and self.file_path == file_path
 
     @staticmethod
-    def _mk_btn(text, handler):
+    def _mk_btn(text, handler, *, variant="primary"):
         b = QPushButton(text)
-        b.setFixedHeight(36)
         b.clicked.connect(handler)
-        b.setStyleSheet("""
-            QPushButton { background:#22262b; color:#e6e6e6; border:none; padding:6px 14px; border-radius:8px; }
-            QPushButton:hover { background:#2b3137; }
-            QPushButton:pressed { background:#1e2328; }
-        """)
+        b.setMinimumHeight(36)
+        style = PRIMARY_BUTTON_STYLE
+        if variant == "accent":
+            style = ACCENT_BUTTON_STYLE
+        elif variant == "subtle":
+            style = SUBTLE_BUTTON_STYLE
+        b.setStyleSheet(style)
         return b

@@ -7,41 +7,68 @@
           href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
     <style>
-        :root { --bg:#0f1115; --panel:#12161a; --text:#e6e6e6; --muted:#9aa5b1; --accent:#4ec9b0; }
+        :root {
+          --bg:#14181d;
+          --panel:#20262d;
+          --panel-strong:#232a31;
+          --text:#eef2f6;
+          --muted:#8ea0b5;
+          --accent:#56b6a7;
+          --line:#2e3741;
+        }
         html, body { background: var(--bg); color: var(--text); margin:0; padding:0; }
-        body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "JetBrains Mono", monospace; }
+        body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, "JetBrains Mono", monospace; }
         #wrap { padding: 16px 18px; }
         h1,h2,h3{ color: var(--accent); margin: 14px 0 8px; }
-        pre { background: #23272e; padding: 12px; border-radius: 8px; overflow:auto; position: relative; }
-        code { background: #23272e; padding: 2px 4px; border-radius: 4px; }
+        pre {
+          background: var(--panel);
+          border: 1px solid var(--line);
+          padding: 12px;
+          border-radius: 12px;
+          overflow:auto;
+          position: relative;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+        code { background: var(--panel-strong); padding: 2px 5px; border-radius: 6px; }
         .role { color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
-        hr { border:0; height:1px; background:#2b3137; margin:16px 0; }
+        hr { border:0; height:1px; background:var(--line); margin:16px 0; }
+        details {
+          background: var(--panel);
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          padding: 10px 12px 12px;
+        }
+        summary {
+          color: #d8e0e8;
+          font-weight: 600;
+          margin-bottom: 10px;
+        }
 
         /* Copy button: always visible, neutral -> hover fill -> green on copied */
         .copy-btn {
           position: absolute;
           top: 6px; right: 6px;
-          border: 1px solid #3e444a;
-          background: transparent;
-          color: #cfd8dc;
-          border-radius: 8px;
+          border: 1px solid #3a4651;
+          background: rgba(20,24,29,0.85);
+          color: #d6dee7;
+          border-radius: 9px;
           font-size: 12px;
-          padding: 3px 8px;
+          padding: 4px 9px;
           cursor: pointer;
           user-select: none;
           transition: background-color .12s ease, color .12s ease, border-color .12s ease, transform .05s ease;
           backdrop-filter: blur(2px);
         }
         .copy-btn:hover {
-          background: #2b3137;
-          border-color: #4b5259;
+          background: #232a31;
+          border-color: #4d5c6a;
           color: #ffffff;
         }
         .copy-btn:active { transform: translateY(1px); }
         .copy-btn.copied {
-          background: #2e7d32;
-          border-color: #1b5e20;
-          color: #ffffff;
+          background: #2f8f81;
+          border-color: #2f8f81;
+          color: #f8fffd;
         }
     </style>
     <script>
@@ -161,4 +188,3 @@
 <div id="wrap"></div>
 </body>
 </html>
-

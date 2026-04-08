@@ -9,9 +9,10 @@ from PySide6.QtWidgets import (
     QToolButton, QLabel, QMessageBox
 )
 
-from config import APP_NAME, APP_ORG
+from config import APP_AUTHORLINE, APP_NAME, APP_ORG, APP_WINDOW_TITLE
 from history_store import HistoryStore
 from ui.session_widget import SessionWidget
+from ui.theme import APP_WINDOW_STYLE, PIN_BUTTON_STYLE
 
 SOCKET_NAME = "LocalPilot"
 
@@ -27,9 +28,10 @@ class MainWindow(QMainWindow):
             history_store: HistoryStore | None = None,
     ):
         super().__init__()
-        self.setWindowTitle("Local Pilot - Ameer J.")
+        self.setWindowTitle(APP_WINDOW_TITLE)
         self.resize(1100, 820)
         self.history_store = history_store or HistoryStore()
+        self.setStyleSheet(APP_WINDOW_STYLE)
 
         # Settings
         self._settings = QSettings(APP_ORG, APP_NAME)
@@ -41,44 +43,40 @@ class MainWindow(QMainWindow):
 
         # Header with Pin control (top-left)
         container = QWidget(self)
+        container.setObjectName("appShell")
         v = QVBoxLayout(container)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
         header = QWidget(container)
+        header.setObjectName("windowHeader")
         h = QHBoxLayout(header)
-        h.setContentsMargins(10, 8, 10, 4)
-        h.setSpacing(8)
+        h.setContentsMargins(14, 12, 14, 12)
+        h.setSpacing(10)
 
         # Small circular toggle
         self._pin_btn = QToolButton(header)
         self._pin_btn.setCheckable(True)
-        self._pin_btn.setFixedSize(18, 18)
+        self._pin_btn.setFixedSize(20, 20)
         self._pin_btn.setCursor(Qt.PointingHandCursor)
         self._pin_btn.setToolTip("Keep window on top")
-        self._pin_btn.setStyleSheet("""
-            QToolButton {
-                border: 1px solid #343a40;
-                border-radius: 9px;
-                background: #3a3f44;           /* off */
-            }
-            QToolButton:hover { background: #454b52; }
-            QToolButton:checked {
-                background: #2ecc71;           /* on (green) */
-                border-color: #24a65b;
-            }
-            QToolButton:checked:hover { background: #29c168; }
-        """)
+        self._pin_btn.setStyleSheet(PIN_BUTTON_STYLE)
         self._pin_btn.toggled.connect(self._toggle_pin)
 
         # Visible status text
         self._pin_label = QLabel(header)
-        self._pin_label.setStyleSheet("color:#c3c7cf; font-size:12px;")
+        self._pin_label.setProperty("role", "muted")
         self._pin_label.setTextInteractionFlags(Qt.NoTextInteraction)
         self._pin_label.setToolTip("Always-on-top status")
 
+        self._brand_label = QLabel(APP_AUTHORLINE, header)
+        self._brand_label.setProperty("role", "headerTitle")
+        self._brand_label.setTextInteractionFlags(Qt.NoTextInteraction)
+
         h.addWidget(self._pin_btn, 0, Qt.AlignLeft)
         h.addWidget(self._pin_label, 0, Qt.AlignLeft)
+        h.addSpacing(10)
+        h.addWidget(self._brand_label, 0, Qt.AlignLeft)
         h.addStretch(1)
 
         v.addWidget(header, 0)
@@ -128,11 +126,10 @@ class MainWindow(QMainWindow):
         self._settings.setValue("ui/pin_on_top", checked)
 
     def _update_pin_label(self, checked: bool):
-        self._pin_label.setText("Pin: On" if checked else "Pin: Off")
-        # subtle color change for clarity
-        self._pin_label.setStyleSheet(
-            "color:#a8e4c8; font-size:12px;" if checked else "color:#c3c7cf; font-size:12px;"
-        )
+        self._pin_label.setText("Always on Top" if checked else "Standard Window")
+        self._pin_label.setProperty("role", "muted")
+        self._pin_label.style().unpolish(self._pin_label)
+        self._pin_label.style().polish(self._pin_label)
 
     # Focus
     def bring_to_front(self):

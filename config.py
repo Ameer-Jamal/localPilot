@@ -6,6 +6,10 @@ import requests
 
 APP_ORG = "LocalPilot"
 APP_NAME = "Assistant"
+APP_DISPLAY_NAME = "LocalPilot"
+APP_AUTHOR_NAME = "Ameer Jamal"
+APP_WINDOW_TITLE = APP_DISPLAY_NAME
+APP_AUTHORLINE = f"{APP_DISPLAY_NAME} by {APP_AUTHOR_NAME}"
 
 APP_HOME = Path(os.environ.get("LOCALPILOT_HOME", Path.home() / ".localpilot")).expanduser()
 HISTORY_DB_PATH = os.environ.get("LOCALPILOT_HISTORY_DB", str(APP_HOME / "history.db"))
