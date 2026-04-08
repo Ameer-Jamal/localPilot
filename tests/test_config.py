@@ -67,7 +67,7 @@ def test_config_initial_no_model(monkeypatch):
     monkeypatch.delenv('MODEL_LIST', raising=False)
     cfg = load_config(monkeypatch, lambda *a, **k: FakeResponse())
     assert cfg.MODEL_LIST == []
-    assert cfg.MODEL == []
+    assert cfg.MODEL == ""
 
 
 def test_is_ollama_running_true(monkeypatch):

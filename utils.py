@@ -5,7 +5,9 @@ ACTIONS = {
     "refactor": "Refactor for readability. Follow professional best practices like SRP (Single Responsibility Principle) and Preserve behavior.",
     "tests": "Generate focused unit tests with Arrange-Act-Assert structure and cover edge cases.",
     "performance": "Rewrite for maximum performance gain without changing functionality.",
-    "simplify": "Simplify the code to make it more readable and easier to understand while preserving its original functionality."
+    "simplify": "Simplify the code to make it more readable and easier to understand while preserving its original functionality.",
+    "DocString": "Add Concise easy to understand proper Docstring for this depending on the language of the file"
+
 }
 
 

@@ -20,31 +20,64 @@ from PySide6.QtWidgets import (
 )
 from markdown_it import MarkdownIt
 
-from config import fetch_ollama_models, MODEL, is_ollama_running
+from config import APP_NAME, APP_ORG, MODEL
+from history_store import HistoryStore
 from ollama_client import warm_up_model
 from resources.html_template import HTML_TEMPLATE
+from settings_store import (
+    SettingsStore,
+    fetch_ollama_models,
+    get_saved_chat_model,
+    is_ollama_running,
+)
 from ui.input_widget import AutoResizingTextEdit
-from utils import ACTIONS, lang_hint
+from ui.settings_dialog import SettingsDialog
+from utils import lang_hint
 from workers.chat_worker import ChatWorker
 
 md = MarkdownIt()
+LEGACY_SETTINGS_ORG = "AskAboutSelection"
 
 
 class SessionWidget(QWidget):
     """One chat session pinned to a specific code selection."""
     asked = Signal()  # emitted whenever a question is sent (used to bring window to front)
+    settingsChanged = Signal()
 
-    def __init__(self, code: str, file_name: str):
+    def __init__(
+            self,
+            code: str,
+            file_name: str,
+            *,
+            file_path: str = "",
+            history_store: HistoryStore,
+            session_id: int | None = None,
+            persisted_model: str = "",
+    ):
         super().__init__()
         self.code = code
         self.lang = lang_hint(file_name)
         self.file_name = file_name
+        self.file_path = file_path
+        self.history_store = history_store
+        self.session_id = session_id
+        self._preferred_model = persisted_model or MODEL
+        self._assistant_persisted = False
+        self._generation_stopped = False
+        self._settings_store = SettingsStore()
+        self._runtime_settings = self._settings_store.get_runtime_settings()
+        self._quick_prompts = self._settings_store.get_quick_prompts()
 
         # Conversation state
-        self._build_system_message()
+        if session_id is not None:
+            self.history = self.history_store.load_messages(session_id)
+            if not self.history:
+                self._build_system_message()
+        else:
+            self._build_system_message()
 
         # Settings for persisting model selection
-        self._settings = QSettings("AskAboutSelection", "Assistant")
+        self._settings = QSettings(APP_ORG, APP_NAME)
 
         # Initialize Status bar FIRST (as moved in previous fix)
         self.status = QStatusBar()
@@ -52,9 +85,9 @@ class SessionWidget(QWidget):
 
         # Top bar
         top = QHBoxLayout()
-        for action_key, action_value in ACTIONS.items():
-            button_name = action_key.capitalize()
-            top.addWidget(self._mk_btn(button_name, self.create_button_handler(action_key)))
+        self._quick_prompt_layout = QHBoxLayout()
+        self._quick_prompt_layout.setSpacing(6)
+        top.addLayout(self._quick_prompt_layout)
         top.addStretch(1)
 
         # Model selector and label
@@ -72,11 +105,20 @@ class SessionWidget(QWidget):
         self.run_ollama_btn = self._mk_btn("Run Ollama", self._run_ollama_server)
         self.run_ollama_btn.setVisible(False)
 
+        # Install default model button
+        self.install_model_btn = self._mk_btn("Install Model", self._install_default_model)
+        self.install_model_btn.setVisible(False)
+
+        self.settings_btn = self._mk_btn("Settings", self._open_settings_dialog)
+
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
         top.addWidget(self.refresh_btn)
         top.addWidget(self.run_ollama_btn)
+        top.addWidget(self.install_model_btn)
+        top.addWidget(self.settings_btn)
 
+        self._rebuild_quick_prompt_buttons()
         self._setup_model_selector()
         self.warm_up()
 
@@ -108,8 +150,7 @@ class SessionWidget(QWidget):
         self._render_buf: list[str] = []
         self._html: list[str] = []
         self._assistant_md = ""
-        self._append_code_context_block()
-        self._set_html("".join(self._html))
+        self._restore_transcript()
 
         self._render_timer = QTimer(self)
         self._render_timer.setInterval(80)
@@ -119,6 +160,7 @@ class SessionWidget(QWidget):
         self._start_ts = 0.0
         self._chars = 0
 
+        self._ensure_session()
         self._flush_render(force=True)
 
     def _get_current_available_models(self) -> list[str]:
@@ -126,7 +168,8 @@ class SessionWidget(QWidget):
         Fetches the current list of Ollama models by calling the function
         from config.py.
         """
-        return fetch_ollama_models()
+        self._runtime_settings = self._settings_store.get_runtime_settings()
+        return fetch_ollama_models(self._runtime_settings)
 
     def _setup_model_selector(self):
         """
@@ -143,11 +186,13 @@ class SessionWidget(QWidget):
 
         if current_model_list:
             self.model_combo.addItems(current_model_list)
-            # Try to restore saved model or fall back to default/first available
-            # Use the MODEL from config.py as the application-wide default if not saved
-            saved_model = self._settings.value("chat/model", MODEL, type=str)
-            preferred = next((model for model in (saved_model, MODEL) if model in current_model_list),
-                             current_model_list[0])
+            saved_model = get_saved_chat_model(self._settings)
+            if not saved_model:
+                saved_model = QSettings(LEGACY_SETTINGS_ORG, APP_NAME).value("chat/model", MODEL, type=str)
+            preferred = next(
+                (model for model in (self._preferred_model, saved_model, MODEL) if model in current_model_list),
+                current_model_list[0],
+            )
             self.model_combo.setCurrentText(preferred)
             self.model_combo.setEnabled(True)
             self.model_combo.currentTextChanged.connect(self._on_model_changed)
@@ -155,27 +200,26 @@ class SessionWidget(QWidget):
             self.status.showMessage("Ready")
             self.refresh_btn.setVisible(False)
             self.run_ollama_btn.setVisible(False)
+            self.install_model_btn.setVisible(False)
         else:
-            server_up = is_ollama_running()
+            server_up = is_ollama_running(self._runtime_settings)
             self.model_combo.addItem("No Ollama Models Found")
             self.model_combo.setCurrentIndex(0)
             self.model_combo.setEnabled(False)
             if server_up:
-                self.status.showMessage("No Ollama models found. Click Refresh to check again.")
+                self.status.showMessage(
+                    f"No Ollama models found. Install one with `ollama pull {self._runtime_settings.default_pull_model}` or click Install Model."
+                )
             else:
                 self.status.showMessage("Ollama server not running. Click Run Ollama to start it.")
             self.refresh_btn.setVisible(True)
             self.run_ollama_btn.setVisible(not server_up)
+            self.install_model_btn.setVisible(server_up)
 
     def _run_ollama_server(self):
         """Attempt to start the Ollama server with predefined settings."""
         env = os.environ.copy()
-        env.update({
-            "OLLAMA_NUM_PARALLEL": "2",
-            "OLLAMA_MAX_LOADED_MODELS": "2",
-            "OLLAMA_FLASH_ATTENTION": "1",
-            "OLLAMA_KV_CACHE_TYPE": "q8_0",
-        })
+        env.update(self._runtime_settings.serve_env)
         cmd = shutil.which("ollama") or "/opt/homebrew/opt/ollama/bin/ollama"
         try:
             subprocess.Popen(
@@ -187,12 +231,61 @@ class SessionWidget(QWidget):
             )
             self.status.showMessage("Ollama server starting…")
             self.run_ollama_btn.setVisible(False)
-            QTimer.singleShot(2000, self._setup_model_selector)
+            self._begin_ollama_refresh()
         except Exception as exc:
             self.status.showMessage(f"Failed to start Ollama: {exc}")
 
-    def create_button_handler(self, key):
-        return lambda: self.auto_run(ACTIONS[key])
+    def _install_default_model(self):
+        cmd = shutil.which("ollama") or "/opt/homebrew/opt/ollama/bin/ollama"
+        try:
+            subprocess.Popen(
+                [cmd, "pull", self._runtime_settings.default_pull_model],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self.status.showMessage(f"Installing {self._runtime_settings.default_pull_model}…")
+            self.install_model_btn.setVisible(False)
+            self._begin_ollama_refresh(attempts=60)
+        except Exception as exc:
+            self.status.showMessage(f"Failed to install model: {exc}")
+
+    def _begin_ollama_refresh(self, *, attempts: int = 20, delay_ms: int = 1500):
+        def _poll(remaining: int) -> None:
+            self._setup_model_selector()
+            if self._get_current_available_models() or remaining <= 1:
+                return
+            QTimer.singleShot(delay_ms, lambda: _poll(remaining - 1))
+
+        QTimer.singleShot(delay_ms, lambda: _poll(attempts))
+
+    def _rebuild_quick_prompt_buttons(self):
+        while self._quick_prompt_layout.count():
+            item = self._quick_prompt_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for label, prompt in self._quick_prompts.items():
+            self._quick_prompt_layout.addWidget(self._mk_btn(label, lambda checked=False, p=prompt: self.auto_run(p)))
+
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(
+            runtime=self._runtime_settings,
+            quick_prompts=self._quick_prompts,
+            parent=self,
+        )
+        if dialog.exec() != dialog.Accepted:
+            return
+        self._settings_store.save_runtime_settings(dialog.get_runtime_settings())
+        self._settings_store.save_quick_prompts(dialog.get_quick_prompts())
+        self.reload_settings()
+        self.settingsChanged.emit()
+
+    def reload_settings(self):
+        self._runtime_settings = self._settings_store.get_runtime_settings()
+        self._quick_prompts = self._settings_store.get_quick_prompts()
+        self._rebuild_quick_prompt_buttons()
+        self._setup_model_selector()
 
     # public API
     def auto_run(self, instruction: str):
@@ -207,30 +300,57 @@ class SessionWidget(QWidget):
         self.input.setFocus(Qt.TabFocusReason)
 
     def warm_up(self):
-        model = self.model_combo.currentText().strip()
-        if model and model != "No Ollama Models Found":
+        model = self._selected_model()
+        if model:
             warm_up_model(model)
 
     # conversation plumbing
     def _build_system_message(self):
         base = "You are a senior software engineer. Be concise and precise."
+        location = self.file_path or self.file_name
         if self.code.strip():
             content = (
-                base + " Pinned code context follows.\n\n" +
+                base + f" Source file: {location}.\nPinned code context follows.\n\n" +
                 f"```{self.lang}\n{self.code}\n```"
             )
         else:
             content = base
         self.history = [{"role": "system", "content": content}]
 
+    def _restore_transcript(self):
+        self._append_code_context_block()
+        for msg in self.history:
+            if msg.get("role") == "system":
+                continue
+            self._append_role_block(msg.get("role", "user"), msg.get("content", ""))
+        self._set_html("".join(self._html))
+
+    def _ensure_session(self):
+        if self.session_id is not None:
+            return
+        self.session_id = self.history_store.create_session(
+            file_name=self.file_name,
+            file_path=self.file_path,
+            code=self.code,
+            model=self._selected_model(),
+            messages=self.history,
+            is_open=True,
+        )
+
+    def _selected_model(self) -> str:
+        model = self.model_combo.currentText().strip()
+        return "" if not model or model == "No Ollama Models Found" else model
+
     def _user_say(self, text: str):
         self.history.append({"role": "user", "content": text})
+        if self.session_id is not None:
+            self.history_store.append_message(self.session_id, "user", text)
         self._append_role_block("user", text)
         self._flush_render(True)
 
     def _chat(self):
-        model = self.model_combo.currentText().strip()
-        if not model or model == "No Ollama Models Found":  # Check for the dummy text
+        model = self._selected_model()
+        if not model:
             self.status.showMessage("No Ollama models available to chat with.")
             return
 
@@ -240,6 +360,8 @@ class SessionWidget(QWidget):
 
         self._assistant_md = ""
         self._render_buf = []
+        self._assistant_persisted = False
+        self._generation_stopped = False
         self.status.showMessage(f"Generating with {model}…")
         self._start_ts = time.time()
         self._chars = 0
@@ -261,20 +383,34 @@ class SessionWidget(QWidget):
 
     def _on_model_changed(self, model: str):
         self._settings.setValue("chat/model", model)
+        self._preferred_model = model
+        if self.session_id is not None and model and model != "No Ollama Models Found":
+            self.history_store.update_session_model(self.session_id, model)
 
     def _on_error(self, msg: str):
-        self._render_buf.append(f"\n\n**Error:** {msg}\n")
+        rendered = f"\n\n**Error:** {msg}\n"
+        self._render_buf.append(rendered)
+        self._assistant_md += rendered
 
     def _on_done(self):
         self._render_timer.stop()
         self._flush_render(True)
-        self.history.append({"role": "assistant", "content": self._assistant_md})
+        if self._assistant_md:
+            self._finalize_assistant_message()
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
         model = getattr(self, "_active_model", self.model_combo.currentText())
         self.status.showMessage(
             f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps | {model}"
         )
+
+    def _finalize_assistant_message(self):
+        if self._assistant_persisted:
+            return
+        self._assistant_persisted = True
+        self.history.append({"role": "assistant", "content": self._assistant_md})
+        if self.session_id is not None:
+            self.history_store.append_message(self.session_id, "assistant", self._assistant_md)
 
     # rendering
     def _append_code_context_block(self):
@@ -330,6 +466,7 @@ class SessionWidget(QWidget):
 
     def _stop_generation(self):
         if self._worker and self._worker.isRunning():
+            self._generation_stopped = True
             try:
                 self._worker.stop()
                 self._worker.wait()
@@ -339,11 +476,18 @@ class SessionWidget(QWidget):
             self._render_timer.stop()
             self._flush_render(True)
             if getattr(self, "_assistant_md", ""):
-                self.history.append({"role": "assistant", "content": self._assistant_md})
+                self._finalize_assistant_message()
             self.status.showMessage("Generation stopped")
 
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
+
+    def close_session(self):
+        if self.session_id is not None:
+            self.history_store.mark_session_closed(self.session_id)
+
+    def matches_context(self, code: str, file_name: str, file_path: str) -> bool:
+        return self.code == code and self.file_name == file_name and self.file_path == file_path
 
     @staticmethod
     def _mk_btn(text, handler):

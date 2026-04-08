@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 import argparse
-import json
 import os
 import sys
+from dataclasses import dataclass
 
-from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtWidgets import QApplication
 
-from ui.main_window import MainWindow, SOCKET_NAME
+from history_store import HistoryStore
+from ipc import send_open_session
+from ui.main_window import MainWindow
 
 
 # -------- file + selection utilities --------
+
+
+@dataclass(frozen=True, slots=True)
+class LaunchPayload:
+    code: str
+    display_name: str
+    file_path: str
 
 def read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -79,18 +87,19 @@ def parse_args():
     return p.parse_args()
 
 
-def get_selection(args) -> tuple[str, str]:
-    """Return (selection_text, display_title)."""
-    title = args.file or (os.path.basename(args.filepath) if args.filepath else "selection")
+def get_selection(args) -> LaunchPayload:
+    """Return the selection payload resolved from CLI arguments."""
+    file_path = args.filepath or ""
+    title = args.file or (os.path.basename(file_path) if file_path else "selection")
 
     # 1) explicit selection text
     if args.selection and "$" not in args.selection:
-        return args.selection, title
+        return LaunchPayload(args.selection, title, file_path)
 
     file_text = ""
-    if args.filepath:
+    if file_path:
         try:
-            file_text = read_file(args.filepath)
+            file_text = read_file(file_path)
         except OSError:
             file_text = ""
 
@@ -98,7 +107,7 @@ def get_selection(args) -> tuple[str, str]:
     s = _int_or_none(args.sel_start)
     e = _int_or_none(args.sel_end)
     if file_text and s is not None and e is not None:
-        return slice_by_offsets(file_text, s, e), title
+        return LaunchPayload(slice_by_offsets(file_text, s, e), title, file_path)
 
     # 3) line/column
     sl = _int_or_none(args.sel_start_line)
@@ -106,44 +115,29 @@ def get_selection(args) -> tuple[str, str]:
     el = _int_or_none(args.sel_end_line)
     ec = _int_or_none(args.sel_end_col)
     if file_text and None not in (sl, sc, el, ec):
-        return slice_by_lc(file_text, sl, sc, el, ec), title
+        return LaunchPayload(slice_by_lc(file_text, sl, sc, el, ec), title, file_path)
 
     # 4) stdin
     if not sys.stdin.isatty():
-        return sys.stdin.read(), title
+        return LaunchPayload(sys.stdin.read(), title, file_path)
 
-    return "", title
-
-
-# -------- single-instance IPC --------
-
-def send_to_running_instance(code: str, file_name: str) -> bool:
-    """Return True if a running instance was found and the message was delivered."""
-    sock = QLocalSocket()
-    sock.connectToServer(SOCKET_NAME)
-    if not sock.waitForConnected(200):  # no instance listening
-        return False
-    payload = json.dumps({"cmd": "open_session", "code": code, "file": file_name}).encode("utf-8")
-    sock.write(payload)
-    sock.flush()
-    sock.waitForBytesWritten(200)
-    sock.disconnectFromServer()
-    return True
+    return LaunchPayload("", title, file_path)
 
 
 # -------- entrypoint --------
 
 def main():
     args = parse_args()
-    code, display_name = get_selection(args)
+    payload = get_selection(args)
 
     # If an instance is running, hand off via IPC and exit.
-    if send_to_running_instance(code, display_name):
+    if send_open_session(payload.code, payload.display_name, payload.file_path):
         return
 
     # Otherwise, start the UI and begin listening for future selections.
     app = QApplication(sys.argv)
-    win = MainWindow(code, display_name)
+    history_store = HistoryStore()
+    win = MainWindow(payload.code, payload.display_name, payload.file_path, history_store=history_store)
     win.listen_ipc()
     win.show()
     sys.exit(app.exec())

@@ -25,6 +25,16 @@ def load_worker(monkeypatch):
     monkeypatch.setitem(sys.modules, 'PySide6', pyside6)
     monkeypatch.setitem(sys.modules, 'PySide6.QtCore', qtcore)
     monkeypatch.setitem(sys.modules, 'requests', types.SimpleNamespace(post=lambda *a, **k: None))
+    settings_mod = types.ModuleType('settings_store')
+    settings_mod.SettingsStore = lambda: types.SimpleNamespace(
+        get_runtime_settings=lambda: types.SimpleNamespace(
+            ollama_chat_url='http://localhost:11434/api/chat',
+            temperature=0.2,
+            num_ctx=16384,
+            keep_alive='10m',
+        )
+    )
+    monkeypatch.setitem(sys.modules, 'settings_store', settings_mod)
     import workers.chat_worker as cw
     return importlib.reload(cw)
 
@@ -57,24 +67,41 @@ def load_worker_thread(monkeypatch, stream_impl):
     monkeypatch.setitem(sys.modules, 'PySide6', pyside6)
     monkeypatch.setitem(sys.modules, 'PySide6.QtCore', qtcore)
     monkeypatch.setitem(sys.modules, 'requests', types.SimpleNamespace(post=lambda *a, **k: None))
+    settings_mod = types.ModuleType('settings_store')
+    settings_mod.SettingsStore = lambda: types.SimpleNamespace(
+        get_runtime_settings=lambda: types.SimpleNamespace(
+            ollama_chat_url='http://localhost:11434/api/chat',
+            temperature=0.2,
+            num_ctx=16384,
+            keep_alive='10m',
+        )
+    )
+    monkeypatch.setitem(sys.modules, 'settings_store', settings_mod)
     import workers.chat_worker as cw
     cw = importlib.reload(cw)
     monkeypatch.setattr(cw, 'stream_ollama', stream_impl)
     return cw
 
 
-def test_build_prompt(monkeypatch):
-    cw = load_worker(monkeypatch)
+def test_worker_passes_structured_messages(monkeypatch):
+    seen = {}
+
+    def fake_stream(messages, out_q, model=None, stop_event=None):
+        seen["messages"] = messages
+        seen["model"] = model
+        out_q.put(None)
+
+    cw = load_worker_thread(monkeypatch, fake_stream)
     messages = [
         {'role': 'system', 'content': 'sys'},
         {'role': 'user', 'content': 'u'},
         {'role': 'assistant', 'content': 'a'},
     ]
     worker = cw.ChatWorker(messages, model='x')
-    prompt = worker._build_prompt()
-    assert 'sys' in prompt
-    assert 'user: u' in prompt
-    assert prompt.strip().endswith('assistant:')
+    worker.start()
+    worker.wait(500)
+    assert seen["messages"] == messages
+    assert seen["model"] == "x"
 
 
 def test_worker_stop(monkeypatch):

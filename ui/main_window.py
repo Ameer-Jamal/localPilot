@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QToolButton, QLabel, QMessageBox
 )
 
+from config import APP_NAME, APP_ORG
+from history_store import HistoryStore
 from ui.session_widget import SessionWidget
 
 SOCKET_NAME = "LocalPilot"
@@ -16,13 +18,21 @@ SOCKET_NAME = "LocalPilot"
 
 class MainWindow(QMainWindow):
     """Holds tabs; manages IPC; persistent Always-On-Top toggle with visible status."""
-    def __init__(self, code: str, file_name: str):
+    def __init__(
+            self,
+            code: str,
+            file_name: str,
+            file_path: str = "",
+            *,
+            history_store: HistoryStore | None = None,
+    ):
         super().__init__()
         self.setWindowTitle("Local Pilot - Ameer J.")
         self.resize(1100, 820)
+        self.history_store = history_store or HistoryStore()
 
         # Settings
-        self._settings = QSettings("LocalPilot", "Assistant")
+        self._settings = QSettings(APP_ORG, APP_NAME)
 
         # Tabs
         self.tabs = QTabWidget()
@@ -84,8 +94,25 @@ class MainWindow(QMainWindow):
         self._pin_btn.blockSignals(False)
         self._apply_pin(pinned)
 
-        # First tab
-        self.new_tab(code, file_name, select=True)
+        restored = self._restore_open_sessions()
+        if code or not restored:
+            self.new_tab(code, file_name, file_path=file_path, select=True)
+        elif restored:
+            self.tabs.setCurrentIndex(self.tabs.count() - 1)
+
+    def _restore_open_sessions(self) -> bool:
+        restored_any = False
+        for session in self.history_store.load_open_sessions():
+            self.new_tab(
+                session.code,
+                session.file_name,
+                file_path=session.file_path,
+                session_id=session.session_id,
+                persisted_model=session.model,
+                select=False,
+            )
+            restored_any = True
+        return restored_any
 
     # Pin logic
     def _apply_pin(self, checked: bool):
@@ -129,13 +156,39 @@ class MainWindow(QMainWindow):
             w.input.setFocus(Qt.ActiveWindowFocusReason)
 
     # Tabs
-    def new_tab(self, code: str, file_name: str, select: bool = True):
-        w = SessionWidget(code, file_name)
+    def new_tab(
+            self,
+            code: str,
+            file_name: str,
+            *,
+            file_path: str = "",
+            session_id: int | None = None,
+            persisted_model: str = "",
+            select: bool = True,
+    ):
+        w = SessionWidget(
+            code,
+            file_name,
+            file_path=file_path,
+            history_store=self.history_store,
+            session_id=session_id,
+            persisted_model=persisted_model,
+        )
         w.asked.connect(self.bring_to_front)
+        w.settingsChanged.connect(self._reload_session_settings)
         idx = self.tabs.addTab(w, file_name or "selection")
         if select:
             self.tabs.setCurrentIndex(idx)
         QTimer.singleShot(0, w.focus_input)
+
+    def _reload_session_settings(self):
+        origin = self.sender()
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if widget is origin:
+                continue
+            if hasattr(widget, "reload_settings"):
+                widget.reload_settings()
 
     def _on_tab_close(self, index: int):
         w = self.tabs.widget(index)
@@ -152,6 +205,8 @@ class MainWindow(QMainWindow):
                 w._worker.wait()
         except Exception:
             pass
+        if hasattr(w, "close_session"):
+            w.close_session()
         self.tabs.removeTab(index)
         if self.tabs.count() == 0:
             self.close()
@@ -178,7 +233,14 @@ class MainWindow(QMainWindow):
             if msg.get("cmd") == "open_session":
                 code = msg.get("code", "")
                 file_name = msg.get("file", "selection")
-                self.new_tab(code, file_name, select=True)
+                file_path = msg.get("filepath", "")
+                self.new_tab(code, file_name, file_path=file_path, select=True)
                 self.bring_to_front()
         finally:
             sock.disconnectFromServer()
+
+    def closeEvent(self, event):
+        try:
+            self.history_store.close()
+        finally:
+            super().closeEvent(event)

@@ -7,6 +7,8 @@ local LLM about that exact selection.
 - 🧠 **Local & free**: uses your **Ollama** on `localhost` (no cloud, no tokens)
 - 🔒 **Private by design**: your code never leaves your machine
 - 🧵 **Tabbed chats** per selection
+- 💾 **Persistent history** stored locally in SQLite
+- ⚙️ **Settings UI** for Ollama defaults and quick prompts
 - 📌 **Always-on-top** toggle (persists)
 - ⏱️ **Streaming** responses with free scrolling
 - 📋 **Copy code** buttons on blocks
@@ -60,24 +62,27 @@ What this does:
     * The pinned **code context** is at the top (collapsible).
     * Type your question (Cmd/Ctrl+Enter to send).
     * Or use the built in quick commands
+    * Use **Settings** to change Ollama defaults and add/edit/remove quick prompt buttons
     * Use **Stop** to cancel generation.
     * **Copy** appears on code blocks (always visible; shows “Copied!” on click).
     * **Pin** (top-left) keeps the window floating above your IDE; state persists.
 
 Each new code selection opens a **new tab** so conversations don’t mix. Closing the last tab closes the window (with a
-“Are you sure?” safety prompt if something is still generating).
-Note: Chats are not persistant they are stored in memory, persistant chats coming soon...
+“Are you sure?” safety prompt if something is still generating). Open tabs are restored on the next launch, and their
+history is saved locally in `~/.localpilot/history.db`.
 
 ---
 
 ## Configuration
 
-Open `ollama_client.py`:
+Runtime settings live in `config.py`:
 
 ```python
-MODEL = "llama3.1"  # set your favorite local model here
-TEMP = 0.2  # sampling temperature
-OLLAMA_URL = "http://127.0.0.1:11434/api/chat"  # change if you proxy/remote
+OLLAMA_BASE_URL = "http://localhost:11434/api"
+TEMP = 0.2
+NUM_CTX = 16384
+KEEP_ALIVE = "10m"
+DEFAULT_PULL_MODEL = "qwen2.5-coder:7b"
 ```
 
 UI tweaks you may like:
@@ -85,6 +90,15 @@ UI tweaks you may like:
 * Default always-on-top: toggle via the pin button; persists in `QSettings` as `ui/pin_on_top`.
 * HTML theme / syntax highlight: see `resources/html_template.py` & `resources/template.html`.
 * Behavior (tabs, copy styling, autoscroll): in `ui/session_widget.py`.
+
+Environment overrides:
+
+* `OLLAMA_URL` to point at a different Ollama API base URL
+* `MODEL_LIST` to pin the visible model list
+* `LOCALPILOT_HOME` or `LOCALPILOT_HISTORY_DB` to move persistent history
+
+Most day-to-day changes no longer require editing code directly; use the in-app **Settings** button to manage Ollama
+runtime defaults and quick prompt buttons.
 
 ---
 

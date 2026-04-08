@@ -1,7 +1,14 @@
 """Runtime configuration for the local assistant."""
 import os
+from pathlib import Path
 
 import requests
+
+APP_ORG = "LocalPilot"
+APP_NAME = "Assistant"
+
+APP_HOME = Path(os.environ.get("LOCALPILOT_HOME", Path.home() / ".localpilot")).expanduser()
+HISTORY_DB_PATH = os.environ.get("LOCALPILOT_HISTORY_DB", str(APP_HOME / "history.db"))
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP endpoints
@@ -58,9 +65,10 @@ def is_ollama_running() -> bool:
 
 MODEL_LIST = fetch_ollama_models()
 
-MODEL = MODEL_LIST[0] if MODEL_LIST else []
+MODEL = MODEL_LIST[0] if MODEL_LIST else ""
 TEMP = 0.2
 
 # Context window for chat requests (increase if you pin long code)
 NUM_CTX = 16384  # adjust build/model supports it
 KEEP_ALIVE = "10m"  # keep loaded between requests
+DEFAULT_PULL_MODEL = os.environ.get("DEFAULT_OLLAMA_MODEL", "qwen2.5-coder:7b")

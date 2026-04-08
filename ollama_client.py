@@ -7,13 +7,17 @@ from typing import Optional
 
 import requests
 
-from config import MODEL, OLLAMA_BASE_URL, TEMP
+from config import MODEL
+from settings_store import SettingsStore
 
-OLLAMA_URL = f"{OLLAMA_BASE_URL}/generate"
 
-
-def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None,
-                  stop_event: Optional[threading.Event] = None) -> None:
+def stream_ollama(
+        messages: list[dict[str, str]],
+        out_q: queue.Queue,
+        model: str | None = None,
+        stop_event: Optional[threading.Event] = None,
+) -> None:
+    runtime = SettingsStore().get_runtime_settings()
     model = model or MODEL
     if not model:
         out_q.put("\n[Error] No model specified\n")
@@ -24,22 +28,24 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None,
         out_q.put(None)
         return
 
-    print(f"[stream_ollama] requesting model={model}")
     try:
         with requests.post(
-                OLLAMA_URL,
-                headers={"Content-Type": "application/json"},
-                data=json.dumps({
-                    "model": model,
-                    "prompt": prompt,
-                    "options": {"temperature": TEMP},
-                    "stream": True,
-                }),
-                stream=True,
-                timeout=180,
+            runtime.ollama_chat_url,
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": messages,
+                "options": {
+                    "temperature": runtime.temperature,
+                    "num_ctx": runtime.num_ctx,
+                },
+                "keep_alive": runtime.keep_alive,
+                "stream": True,
+            },
+            stream=True,
+            timeout=180,
         ) as r:
             r.raise_for_status()
-            confirmed = False
             for line in r.iter_lines(decode_unicode=True):
                 if stop_event and stop_event.is_set():
                     break
@@ -47,10 +53,7 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None,
                     continue
                 try:
                     obj = json.loads(line)
-                    if not confirmed and obj.get("model"):
-                        print(f"[stream_ollama] server model={obj['model']}")
-                        confirmed = True
-                    chunk = obj.get("response", "")
+                    chunk = obj.get("message", {}).get("content", "")
                 except json.JSONDecodeError:
                     chunk = line
                 if chunk:
@@ -63,6 +66,7 @@ def stream_ollama(prompt: str, out_q: queue.Queue, model: str | None = None,
 
 def warm_up_model(model: str | None = None) -> None:
     """Issue a tiny request in the background to load the model into memory."""
+    runtime = SettingsStore().get_runtime_settings()
     model = model or MODEL
     if not model:
         return
@@ -70,9 +74,18 @@ def warm_up_model(model: str | None = None) -> None:
     def _warm() -> None:
         try:
             requests.post(
-                OLLAMA_URL,
+                runtime.ollama_chat_url,
                 headers={"Content-Type": "application/json"},
-                data=json.dumps({"model": model, "prompt": "", "stream": False}),
+                json={
+                    "model": model,
+                    "messages": [],
+                    "options": {
+                        "temperature": runtime.temperature,
+                        "num_ctx": runtime.num_ctx,
+                    },
+                    "keep_alive": runtime.keep_alive,
+                    "stream": False,
+                },
                 timeout=30,
             ).raise_for_status()
         except Exception:
