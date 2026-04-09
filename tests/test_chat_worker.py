@@ -14,11 +14,11 @@ def load_worker(monkeypatch):
 
     class DummySignal:
         def __init__(self, *a, **k):
-            pass
+            self._unused = None
         def connect(self, *a, **k):
-            pass
+            return None
         def emit(self, *a, **k):
-            pass
+            return None
     qtcore.QThread = object
     qtcore.Signal = lambda *a, **k: DummySignal()
 
@@ -50,7 +50,7 @@ def load_worker_thread(monkeypatch, stream_impl):
         def connect(self, cb):
             self._cbs.append(cb)
         def emit(self, *a, **k):
-            for cb in list(self._cbs):
+            for cb in tuple(self._cbs):
                 cb(*a, **k)
 
     class DummyQThread(threading.Thread):

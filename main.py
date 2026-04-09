@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from PySide6.QtWidgets import QApplication
 
+from app_constants import NEW_CHAT_TITLE
 from history_store import HistoryStore
 from ipc import send_open_session
 from ui.main_window import MainWindow
@@ -121,7 +122,7 @@ def parse_args():
 def get_selection(args) -> LaunchPayload:
     """Return the selection payload resolved from CLI arguments."""
     file_path = args.filepath or ""
-    title = args.file or (os.path.basename(file_path) if file_path else "New Chat")
+    title = args.file or (os.path.basename(file_path) if file_path else NEW_CHAT_TITLE)
 
     # 1) explicit selection text
     if args.selection and "$" not in args.selection:

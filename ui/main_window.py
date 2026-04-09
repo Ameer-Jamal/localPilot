@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from app_constants import HISTORY_LABEL, NEW_CHAT_TITLE, SETTINGS_LABEL, SHOW_HISTORY_LABEL
 from chat_logic import should_open_new_chat
 from PySide6.QtCore import Qt, QTimer, QSettings, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
@@ -25,6 +26,32 @@ from ui.theme import (
     PIN_BUTTON_STYLE,
     PRIMARY_BUTTON_STYLE,
     SUBTLE_BUTTON_STYLE,
+)
+from ui_text import (
+    CONFIRM_CLEAR_HISTORY_INFO,
+    CONFIRM_CLEAR_HISTORY_TEXT,
+    CONFIRM_CLEAR_HISTORY_TITLE,
+    CONFIRM_CLOSE_CHAT_INFO,
+    CONFIRM_CLOSE_CHAT_TITLE,
+    CONFIRM_DELETE_HISTORY_INFO,
+    CONFIRM_DELETE_HISTORY_TITLE,
+    EMPTY_STATE_BODY,
+    EMPTY_STATE_TITLE,
+    LABEL_ALWAYS_ON_TOP,
+    LABEL_CANCEL,
+    LABEL_CLEAR_HISTORY,
+    LABEL_CLOSE_TAB,
+    LABEL_KEEP_OPEN,
+    LABEL_STANDARD_WINDOW,
+    LABEL_UNTITLED_CHAT,
+    TOOLTIP_ALWAYS_ON_TOP_STATUS,
+    TOOLTIP_KEEP_ON_TOP,
+    TOOLTIP_NEW_CHAT_TAB,
+    TOOLTIP_OPEN_SETTINGS,
+    TOOLTIP_SHOW_HISTORY,
+    TOOLTIP_SHOW_HISTORY_PANEL,
+    confirm_close_chat_text,
+    confirm_delete_history_text,
 )
 
 SOCKET_NAME = "LocalPilot"
@@ -101,7 +128,7 @@ class MainWindow(QMainWindow):
         self._pin_btn.setCheckable(True)
         self._pin_btn.setFixedSize(20, 20)
         self._pin_btn.setCursor(Qt.PointingHandCursor)
-        self._pin_btn.setToolTip("Keep window on top")
+        self._pin_btn.setToolTip(TOOLTIP_KEEP_ON_TOP)
         self._pin_btn.setStyleSheet(PIN_BUTTON_STYLE)
         self._pin_btn.toggled.connect(self._toggle_pin)
 
@@ -109,24 +136,24 @@ class MainWindow(QMainWindow):
         self._pin_label = QLabel(header)
         self._pin_label.setProperty("role", "muted")
         self._pin_label.setTextInteractionFlags(Qt.NoTextInteraction)
-        self._pin_label.setToolTip("Always-on-top status")
+        self._pin_label.setToolTip(TOOLTIP_ALWAYS_ON_TOP_STATUS)
 
         self._brand_label = QLabel(APP_WINDOW_TITLE, header)
         self._brand_label.setProperty("role", "headerTitle")
         self._brand_label.setTextInteractionFlags(Qt.NoTextInteraction)
 
         self._history_btn = QToolButton(header)
-        self._history_btn.setText("History")
+        self._history_btn.setText(HISTORY_LABEL)
         self._history_btn.setCheckable(True)
         self._history_btn.setCursor(Qt.PointingHandCursor)
-        self._history_btn.setToolTip("Show saved chats")
+        self._history_btn.setToolTip(TOOLTIP_SHOW_HISTORY)
         self._history_btn.setStyleSheet(SUBTLE_BUTTON_STYLE.replace("QPushButton", "QToolButton"))
         self._history_btn.toggled.connect(self._toggle_history_panel)
 
         self._settings_btn = QToolButton(header)
-        self._settings_btn.setText("Settings")
+        self._settings_btn.setText(SETTINGS_LABEL)
         self._settings_btn.setCursor(Qt.PointingHandCursor)
-        self._settings_btn.setToolTip("Open LocalPilot settings")
+        self._settings_btn.setToolTip(TOOLTIP_OPEN_SETTINGS)
         self._settings_btn.setStyleSheet(SUBTLE_BUTTON_STYLE.replace("QPushButton", "QToolButton"))
         self._settings_btn.clicked.connect(self._open_settings_dialog)
 
@@ -145,7 +172,7 @@ class MainWindow(QMainWindow):
         self._history_reveal_btn = QToolButton(container)
         self._history_reveal_btn.setText("›")
         self._history_reveal_btn.setCursor(Qt.PointingHandCursor)
-        self._history_reveal_btn.setToolTip("Show history panel")
+        self._history_reveal_btn.setToolTip(TOOLTIP_SHOW_HISTORY_PANEL)
         self._history_reveal_btn.setFixedSize(30, 46)
         self._history_reveal_btn.setStyleSheet(HISTORY_REVEAL_BUTTON_STYLE)
         self._history_reveal_btn.clicked.connect(lambda: self._history_btn.setChecked(True))
@@ -215,7 +242,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("ui/pin_on_top", checked)
 
     def _update_pin_label(self, checked: bool):
-        self._pin_label.setText("Always on Top" if checked else "Standard Window")
+        self._pin_label.setText(LABEL_ALWAYS_ON_TOP if checked else LABEL_STANDARD_WINDOW)
         self._pin_label.setProperty("role", "muted")
         self._pin_label.style().unpolish(self._pin_label)
         self._pin_label.style().polish(self._pin_label)
@@ -277,7 +304,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, w.focus_input)
 
     def _open_empty_tab(self):
-        self.new_tab("", "New Chat", session_title="New Chat", select=True)
+        self.new_tab("", NEW_CHAT_TITLE, session_title=NEW_CHAT_TITLE, select=True)
         self.bring_to_front()
 
     def _build_plus_placeholder(self) -> QWidget:
@@ -298,14 +325,11 @@ class MainWindow(QMainWindow):
         eyebrow.setProperty("role", "emptyEyebrow")
         eyebrow.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("Start a new chat", card)
+        title = QLabel(EMPTY_STATE_TITLE, card)
         title.setProperty("role", "emptyTitle")
         title.setAlignment(Qt.AlignCenter)
 
-        body = QLabel(
-            "Open a blank chat, review saved conversations, or adjust LocalPilot settings before you begin.",
-            card,
-        )
+        body = QLabel(EMPTY_STATE_BODY, card)
         body.setProperty("role", "emptyBody")
         body.setWordWrap(True)
         body.setAlignment(Qt.AlignCenter)
@@ -315,15 +339,15 @@ class MainWindow(QMainWindow):
         actions.setSpacing(10)
         actions.setContentsMargins(0, 8, 0, 0)
 
-        new_chat_btn = QPushButton("New Chat", card)
+        new_chat_btn = QPushButton(NEW_CHAT_TITLE, card)
         new_chat_btn.setStyleSheet(ACCENT_BUTTON_STYLE)
         new_chat_btn.clicked.connect(self._open_empty_tab)
 
-        settings_btn = QPushButton("Settings", card)
+        settings_btn = QPushButton(SETTINGS_LABEL, card)
         settings_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         settings_btn.clicked.connect(self._open_settings_dialog)
 
-        history_btn = QPushButton("Show History", card)
+        history_btn = QPushButton(SHOW_HISTORY_LABEL, card)
         history_btn.setStyleSheet(SUBTLE_BUTTON_STYLE)
         history_btn.clicked.connect(lambda: self._history_btn.setChecked(True))
 
@@ -355,7 +379,7 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(plus_index)
             self.tabs.addTab(self._plus_tab, "+")
         plus_index = self._plus_tab_index()
-        self.tabs.setTabToolTip(plus_index, "New chat")
+        self.tabs.setTabToolTip(plus_index, TOOLTIP_NEW_CHAT_TAB)
         self.tabs.tabBar().setTabButton(plus_index, QTabBar.RightSide, None)
         self.tabs.tabBar().setTabButton(plus_index, QTabBar.LeftSide, None)
 
@@ -406,14 +430,13 @@ class MainWindow(QMainWindow):
         if dialog.should_clear_history():
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Warning)
-            box.setWindowTitle("Clear Saved History")
-            box.setText("Clear all saved chat history?")
-            box.setInformativeText("This permanently deletes every saved chat. Open tabs will remain visible until "
-                                   "you close them.")
+            box.setWindowTitle(CONFIRM_CLEAR_HISTORY_TITLE)
+            box.setText(CONFIRM_CLEAR_HISTORY_TEXT)
+            box.setInformativeText(CONFIRM_CLEAR_HISTORY_INFO)
             box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             box.setDefaultButton(QMessageBox.No)
-            box.button(QMessageBox.Yes).setText("Clear History")
-            box.button(QMessageBox.No).setText("Cancel")
+            box.button(QMessageBox.Yes).setText(LABEL_CLEAR_HISTORY)
+            box.button(QMessageBox.No).setText(LABEL_CANCEL)
             if box.exec() == QMessageBox.Yes:
                 self.history_store.clear_all_history()
                 self._on_history_cleared()
@@ -490,13 +513,13 @@ class MainWindow(QMainWindow):
             return
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Delete Chat History")
-        box.setText(f'Delete "{session.title or session.file_name or "Untitled Chat"}" from history?')
-        box.setInformativeText("This permanently removes the saved chat transcript from LocalPilot.")
+        box.setWindowTitle(CONFIRM_DELETE_HISTORY_TITLE)
+        box.setText(confirm_delete_history_text(session.title or session.file_name or LABEL_UNTITLED_CHAT))
+        box.setInformativeText(CONFIRM_DELETE_HISTORY_INFO)
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         box.setDefaultButton(QMessageBox.No)
         box.button(QMessageBox.Yes).setText("Delete")
-        box.button(QMessageBox.No).setText("Cancel")
+        box.button(QMessageBox.No).setText(LABEL_CANCEL)
         if box.exec() != QMessageBox.Yes:
             return
         open_index = self._find_open_tab_by_session_id(session_id)
@@ -513,21 +536,21 @@ class MainWindow(QMainWindow):
         if index == self._plus_tab_index():
             return
         w = self.tabs.widget(index)
-        title = self.tabs.tabText(index) or "Untitled"
+        title = self.tabs.tabText(index) or LABEL_UNTITLED_CHAT
         busy_note = "\nA response is still generating." if getattr(w, "_busy", None) and w._busy() else ""
         if self._settings_store.get_confirm_before_closing_tabs():
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Warning)
-            box.setWindowTitle("Close Chat")
-            box.setText(f'Close "{title}"?')
-            info = "You can open a new blank chat from the + tab."
+            box.setWindowTitle(CONFIRM_CLOSE_CHAT_TITLE)
+            box.setText(confirm_close_chat_text(title))
+            info = CONFIRM_CLOSE_CHAT_INFO
             if busy_note:
                 info += " A response is still generating and will be stopped."
             box.setInformativeText(info)
             box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             box.setDefaultButton(QMessageBox.No)
-            box.button(QMessageBox.Yes).setText("Close Tab")
-            box.button(QMessageBox.No).setText("Keep Open")
+            box.button(QMessageBox.Yes).setText(LABEL_CLOSE_TAB)
+            box.button(QMessageBox.No).setText(LABEL_KEEP_OPEN)
             if box.exec() != QMessageBox.Yes:
                 return
         try:

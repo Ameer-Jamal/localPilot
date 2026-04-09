@@ -4,6 +4,8 @@ import tempfile
 import types
 from pathlib import Path
 
+from app_constants import NEW_CHAT_TITLE
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 
@@ -113,7 +115,7 @@ def test_get_selection_defaults_to_blank_new_chat_without_selection(monkeypatch)
     )
     payload = main.get_selection(args)
     assert payload.code == ""
-    assert payload.display_name == "New Chat"
+    assert payload.display_name == NEW_CHAT_TITLE
     assert payload.file_path == ""
 
 
@@ -133,7 +135,7 @@ def test_get_selection_uses_stdin_only_when_available(monkeypatch):
     )
     payload = main.get_selection(args)
     assert payload.code == "from stdin"
-    assert payload.display_name == "New Chat"
+    assert payload.display_name == NEW_CHAT_TITLE
 
 
 def test_should_handoff_to_existing_instance_for_file_or_selection(monkeypatch):
@@ -154,7 +156,7 @@ def test_should_not_handoff_for_plain_standalone_launch(monkeypatch):
     args = main.parse_args.__globals__["argparse"].Namespace(new_instance=False)
     assert not main.should_handoff_to_existing_instance(
         args,
-        main.LaunchPayload("", "New Chat", ""),
+        main.LaunchPayload("", NEW_CHAT_TITLE, ""),
     )
 
 

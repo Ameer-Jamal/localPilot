@@ -7,6 +7,7 @@ from typing import Optional
 
 import requests
 
+from app_constants import JSON_HEADERS
 from config import MODEL
 from settings_store import SettingsStore
 
@@ -104,7 +105,7 @@ def generate_chat_title(
     try:
         response = requests.post(
             runtime.ollama_chat_url,
-            headers={"Content-Type": "application/json"},
+            headers=JSON_HEADERS,
             json={
                 "model": model,
                 "messages": title_messages,
@@ -146,7 +147,7 @@ def stream_ollama(
     try:
         with requests.post(
             runtime.ollama_chat_url,
-            headers={"Content-Type": "application/json"},
+            headers=JSON_HEADERS,
             json={
                 "model": model,
                 "messages": messages,
@@ -195,7 +196,7 @@ def warm_up_model(model: str | None = None) -> None:
         try:
             requests.post(
                 runtime.ollama_chat_url,
-                headers={"Content-Type": "application/json"},
+                headers=JSON_HEADERS,
                 json={
                     "model": model,
                     "messages": [],
@@ -209,7 +210,7 @@ def warm_up_model(model: str | None = None) -> None:
                 timeout=30,
             ).raise_for_status()
         except Exception:
-            pass
+            return None
 
     threading.Thread(target=_warm, daemon=True).start()
 
@@ -222,7 +223,7 @@ def unload_model(model: str) -> bool:
     try:
         requests.post(
             runtime.ollama_chat_url,
-            headers={"Content-Type": "application/json"},
+            headers=JSON_HEADERS,
             json={
                 "model": cleaned,
                 "messages": [],

@@ -2,6 +2,11 @@ import importlib
 import sys
 import types
 from collections import OrderedDict
+from pathlib import Path
+
+import pytest
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 
 class FakeSettings:
@@ -17,11 +22,16 @@ class FakeSettings:
                 return value
         return value
 
-    def setValue(self, key, value):
+    def set_value(self, key, value):
         self.data[key] = value
 
     def remove(self, key):
         self.data.pop(key, None)
+
+    def __getattr__(self, name):
+        if name == "setValue":
+            return self.set_value
+        raise AttributeError(name)
 
 
 def load_settings_store(monkeypatch):
@@ -78,7 +88,7 @@ def test_settings_store_round_trips_runtime_and_prompts(monkeypatch):
 
     loaded_runtime = store.get_runtime_settings()
     assert loaded_runtime.ollama_base_url == "http://host:11434/api"
-    assert loaded_runtime.temperature == 0.5
+    assert loaded_runtime.temperature == pytest.approx(0.5)
     assert loaded_runtime.num_ctx == 32000
     assert loaded_runtime.keep_alive == "20m"
     assert loaded_runtime.default_pull_model == "llama3.1"

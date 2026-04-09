@@ -9,6 +9,7 @@ from typing import Any
 import requests
 from PySide6.QtCore import QSettings
 
+from app_constants import QUICK_PROMPTS_ITEMS_KEY
 from config import (
     APP_NAME,
     APP_ORG,
@@ -205,12 +206,12 @@ class SettingsStore:
         self.settings.setValue("runtime/serve_kv_cache_type", runtime.serve_kv_cache_type)
 
     def get_quick_prompts(self) -> OrderedDict[str, str]:
-        raw = self.settings.value("quick_prompts/items", "", type=str)
+        raw = self.settings.value(QUICK_PROMPTS_ITEMS_KEY, "", type=str)
         parsed: list[dict[str, str]]
         if raw:
             try:
                 parsed = normalize_quick_prompts(json.loads(raw))
-            except (TypeError, ValueError, json.JSONDecodeError):
+            except (TypeError, json.JSONDecodeError):
                 parsed = []
         else:
             parsed = []
@@ -220,10 +221,10 @@ class SettingsStore:
 
     def save_quick_prompts(self, prompts: list[dict[str, str]] | list[tuple[str, str]]) -> None:
         normalized = normalize_quick_prompts(prompts)
-        self.settings.setValue("quick_prompts/items", json.dumps(normalized))
+        self.settings.setValue(QUICK_PROMPTS_ITEMS_KEY, json.dumps(normalized))
 
     def reset_quick_prompts(self) -> None:
-        self.settings.remove("quick_prompts/items")
+        self.settings.remove(QUICK_PROMPTS_ITEMS_KEY)
 
     def get_confirm_before_closing_tabs(self) -> bool:
         return _coerce_bool(self.settings.value("ui/confirm_close_tabs", True), True)

@@ -23,7 +23,7 @@ def test_fetch_ollama_models_from_env(monkeypatch):
 def test_fetch_ollama_models_from_server(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
-            pass
+            return None
 
         def json(self):
             return {'models': [{'name': 'm1'}, {'model': 'm2'}, {}]}
@@ -45,7 +45,7 @@ def test_fetch_ollama_models_failure(monkeypatch):
 def test_config_initial_model_list_and_model(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
-            pass
+            return None
 
         def json(self):
             return {'models': [{'name': 'initial_model1'}, {'model': 'initial_model2'}]}
@@ -59,7 +59,7 @@ def test_config_initial_model_list_and_model(monkeypatch):
 def test_config_initial_no_model(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
-            pass
+            return None
 
         def json(self):
             return {'models': []}
@@ -73,7 +73,7 @@ def test_config_initial_no_model(monkeypatch):
 def test_is_ollama_running_true(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
-            pass
+            return None
 
     cfg = load_config(monkeypatch, lambda *a, **k: FakeResponse())
     assert cfg.is_ollama_running() is True

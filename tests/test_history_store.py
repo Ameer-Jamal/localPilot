@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from app_constants import NEW_CHAT_TITLE
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from history_store import HistoryStore
@@ -96,7 +98,7 @@ def test_history_store_updates_session_titles(tmp_path):
 def test_history_store_ignores_and_prunes_blank_general_chats(tmp_path):
     store = HistoryStore(tmp_path / "history.db")
     blank = store.create_session(
-        file_name="New Chat",
+        file_name=NEW_CHAT_TITLE,
         file_path="",
         code="",
         model="",

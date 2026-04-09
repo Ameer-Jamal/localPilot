@@ -36,12 +36,12 @@ class DummyResponse:
     def __enter__(self):
         return self
     def __exit__(self, exc_type, exc, tb):
-        pass
+        return None
     def iter_lines(self, decode_unicode=True):
         for l in self.lines:
             yield l
     def raise_for_status(self):
-        pass
+        return None
     def json(self):
         return self.payload
 
@@ -152,7 +152,7 @@ def test_unload_tracked_models_uses_keep_alive_zero(monkeypatch):
     q = queue.Queue()
     client.stream_ollama([{'role': 'user', 'content': 'prompt'}], q, model='m')
     while q.get() is not None:
-        pass
+        continue
     unloaded = client.unload_tracked_models()
     assert unloaded == ['m']
     assert seen[-1]["keep_alive"] == 0
@@ -196,7 +196,7 @@ def test_stop_local_ollama_server_releases_models_when_process_not_tracked(monke
     q = queue.Queue()
     client.stream_ollama([{'role': 'user', 'content': 'prompt'}], q, model='m')
     while q.get() is not None:
-        pass
+        continue
     state, unloaded = client.stop_local_ollama_server()
     assert state == "released"
     assert unloaded == ["m"]

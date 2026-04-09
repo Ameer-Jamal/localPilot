@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 from markdown_it import MarkdownIt
 
+from app_constants import NEW_CHAT_TITLE, NO_OLLAMA_MODELS_FOUND, SETTINGS_LABEL
 from chat_logic import (
     has_meaningful_messages,
     pick_preferred_model,
@@ -41,6 +42,37 @@ from settings_store import (
 from ui.input_widget import AutoResizingTextEdit
 from ui.settings_dialog import SettingsDialog
 from ui.theme import ACCENT_BUTTON_STYLE, PRIMARY_BUTTON_STYLE, SUBTLE_BUTTON_STYLE
+from ui_text import (
+    CONFIRM_CLEAR_HISTORY_INFO,
+    CONFIRM_CLEAR_HISTORY_TEXT,
+    CONFIRM_CLEAR_HISTORY_TITLE,
+    LABEL_CANCEL,
+    LABEL_CLEAR_HISTORY,
+    LABEL_INSTALL_MODEL,
+    LABEL_MODEL,
+    LABEL_REFRESH,
+    LABEL_SEND,
+    LABEL_START_OLLAMA,
+    LABEL_STOP,
+    LABEL_STOP_OLLAMA,
+    LABEL_UNTITLED_CHAT,
+    STATUS_FAILED_TO_STOP_OLLAMA,
+    STATUS_GENERATION_STOPPED,
+    STATUS_NO_MODELS_AVAILABLE,
+    STATUS_NO_OLLAMA_TO_STOP,
+    STATUS_READY,
+    STATUS_SERVER_NOT_RUNNING,
+    STATUS_SERVER_STARTING,
+    STATUS_STOPPED_OLLAMA,
+    TOOLTIP_OPEN_SETTINGS,
+    status_done,
+    status_failed_to_install_model,
+    status_failed_to_start_ollama,
+    status_generating,
+    status_installing_model,
+    status_no_models_found,
+    status_released_models,
+)
 from utils import lang_hint
 from workers.chat_worker import ChatWorker
 from workers.title_worker import TitleWorker
@@ -74,7 +106,7 @@ class SessionWidget(QWidget):
         self.lang = lang_hint(file_name)
         self.file_name = file_name
         self.file_path = file_path
-        self.title = (session_title or file_name or "New Chat").strip() or "Untitled Chat"
+        self.title = (session_title or file_name or NEW_CHAT_TITLE).strip() or LABEL_UNTITLED_CHAT
         self.history_store = history_store
         self.session_id = session_id
         self._session_model = (persisted_model or "").strip()
@@ -100,7 +132,7 @@ class SessionWidget(QWidget):
 
         # Initialize Status bar FIRST (as moved in previous fix)
         self.status = QStatusBar()
-        self.status.showMessage("Ready")
+        self.status.showMessage(STATUS_READY)
 
         # Top bar
         toolbar = QWidget(self)
@@ -116,26 +148,27 @@ class SessionWidget(QWidget):
         # Model selector and label
         self.model_lbl = QLabel()
         self.model_lbl.setProperty("role", "muted")
-        self.model_lbl.setText("Model")
+        self.model_lbl.setText(LABEL_MODEL)
 
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
 
         # Refresh button
-        self.refresh_btn = self._mk_btn("Refresh", self._setup_model_selector, variant="subtle")
+        self.refresh_btn = self._mk_btn(LABEL_REFRESH, self._setup_model_selector, variant="subtle")
         self.refresh_btn.setVisible(False)
 
         # Run Ollama button
-        self.run_ollama_btn = self._mk_btn("Start Ollama", self._run_ollama_server, variant="subtle")
+        self.run_ollama_btn = self._mk_btn(LABEL_START_OLLAMA, self._run_ollama_server, variant="subtle")
         self.run_ollama_btn.setVisible(False)
-        self.stop_ollama_btn = self._mk_btn("Stop Ollama", self._stop_ollama_server, variant="subtle")
+        self.stop_ollama_btn = self._mk_btn(LABEL_STOP_OLLAMA, self._stop_ollama_server, variant="subtle")
         self.stop_ollama_btn.setVisible(False)
 
         # Install default model button
-        self.install_model_btn = self._mk_btn("Install Model", self._install_default_model, variant="accent")
+        self.install_model_btn = self._mk_btn(LABEL_INSTALL_MODEL, self._install_default_model, variant="accent")
         self.install_model_btn.setVisible(False)
 
-        self.settings_btn = self._mk_btn("Settings", self._open_settings_dialog, variant="subtle")
+        self.settings_btn = self._mk_btn(SETTINGS_LABEL, self._open_settings_dialog, variant="subtle")
+        self.settings_btn.setToolTip(TOOLTIP_OPEN_SETTINGS)
 
         top.addWidget(self.model_lbl)
         top.addWidget(self.model_combo)
@@ -160,8 +193,8 @@ class SessionWidget(QWidget):
         bottom = QHBoxLayout()
         self.input = AutoResizingTextEdit(min_lines=2, max_lines=8)
         self.input.sendRequested.connect(self._send_message_same_tab)
-        send_btn = self._mk_btn("Send", self._send_message_same_tab, variant="accent")
-        stop_btn = self._mk_btn("Stop", self._stop_generation, variant="subtle")
+        send_btn = self._mk_btn(LABEL_SEND, self._send_message_same_tab, variant="accent")
+        stop_btn = self._mk_btn(LABEL_STOP, self._stop_generation, variant="subtle")
         bottom.addWidget(self.input, 1)
         bottom.addWidget(stop_btn)
         bottom.addWidget(send_btn)
@@ -235,22 +268,20 @@ class SessionWidget(QWidget):
             self.model_combo.setCurrentText(preferred)
             self.model_combo.setEnabled(True)
             self._on_model_changed(self.model_combo.currentText())
-            self.status.showMessage("Ready")
+            self.status.showMessage(STATUS_READY)
             self.refresh_btn.setVisible(False)
             self.run_ollama_btn.setVisible(False)
             self.stop_ollama_btn.setVisible(True)
             self.install_model_btn.setVisible(False)
         else:
             server_up = is_ollama_running(self._runtime_settings)
-            self.model_combo.addItem("No Ollama Models Found")
+            self.model_combo.addItem(NO_OLLAMA_MODELS_FOUND)
             self.model_combo.setCurrentIndex(0)
             self.model_combo.setEnabled(False)
             if server_up:
-                self.status.showMessage(
-                    f"No Ollama models found. Install one with `ollama pull {self._runtime_settings.default_pull_model}` or click Install Model."
-                )
+                self.status.showMessage(status_no_models_found(self._runtime_settings.default_pull_model))
             else:
-                self.status.showMessage("Ollama server not running. Click Run Ollama to start it.")
+                self.status.showMessage(STATUS_SERVER_NOT_RUNNING)
             self.refresh_btn.setVisible(True)
             self.run_ollama_btn.setVisible(not server_up)
             self.stop_ollama_btn.setVisible(server_up)
@@ -271,27 +302,23 @@ class SessionWidget(QWidget):
                 start_new_session=True,
             )
             remember_local_server_process(process)
-            self.status.showMessage("Ollama server starting…")
+            self.status.showMessage(STATUS_SERVER_STARTING)
             self.run_ollama_btn.setVisible(False)
             self.stop_ollama_btn.setVisible(True)
             self._begin_ollama_refresh()
         except Exception as exc:
-            self.status.showMessage(f"Failed to start Ollama: {exc}")
+            self.status.showMessage(status_failed_to_start_ollama(exc))
 
     def _stop_ollama_server(self):
         state, unloaded = stop_local_ollama_server()
         if state == "stopped":
-            self.status.showMessage("Stopped Ollama started by LocalPilot")
+            self.status.showMessage(STATUS_STOPPED_OLLAMA)
         elif state == "released":
-            count = len(unloaded)
-            noun = "model" if count == 1 else "models"
-            self.status.showMessage(
-                f"Released {count} loaded {noun}. Ollama is still running because it was not started by LocalPilot."
-            )
+            self.status.showMessage(status_released_models(len(unloaded)))
         elif state == "idle":
-            self.status.showMessage("No LocalPilot-managed Ollama process or loaded models to stop")
+            self.status.showMessage(STATUS_NO_OLLAMA_TO_STOP)
         else:
-            self.status.showMessage("Failed to stop Ollama cleanly")
+            self.status.showMessage(STATUS_FAILED_TO_STOP_OLLAMA)
         self._setup_model_selector()
 
     def _install_default_model(self):
@@ -303,11 +330,11 @@ class SessionWidget(QWidget):
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            self.status.showMessage(f"Installing {self._runtime_settings.default_pull_model}…")
+            self.status.showMessage(status_installing_model(self._runtime_settings.default_pull_model))
             self.install_model_btn.setVisible(False)
             self._begin_ollama_refresh(attempts=60)
         except Exception as exc:
-            self.status.showMessage(f"Failed to install model: {exc}")
+            self.status.showMessage(status_failed_to_install_model(exc))
 
     def _begin_ollama_refresh(self, *, attempts: int = 20, delay_ms: int = 1500):
         def _poll(remaining: int) -> None:
@@ -345,13 +372,13 @@ class SessionWidget(QWidget):
         if dialog.should_clear_history():
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Warning)
-            box.setWindowTitle("Clear Saved History")
-            box.setText("Clear all saved chat history?")
-            box.setInformativeText("This permanently deletes every saved chat. Open tabs will remain visible until you close them.")
+            box.setWindowTitle(CONFIRM_CLEAR_HISTORY_TITLE)
+            box.setText(CONFIRM_CLEAR_HISTORY_TEXT)
+            box.setInformativeText(CONFIRM_CLEAR_HISTORY_INFO)
             box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             box.setDefaultButton(QMessageBox.No)
-            box.button(QMessageBox.Yes).setText("Clear History")
-            box.button(QMessageBox.No).setText("Cancel")
+            box.button(QMessageBox.Yes).setText(LABEL_CLEAR_HISTORY)
+            box.button(QMessageBox.No).setText(LABEL_CANCEL)
             if box.exec() == QMessageBox.Yes:
                 self.history_store.clear_all_history()
                 self.historyCleared.emit()
@@ -417,10 +444,10 @@ class SessionWidget(QWidget):
 
     def _selected_model(self) -> str:
         model = self.model_combo.currentText().strip()
-        return "" if not model or model == "No Ollama Models Found" else model
+        return "" if not model or model == NO_OLLAMA_MODELS_FOUND else model
 
     def display_title(self) -> str:
-        return self.title or self.file_name or "Untitled Chat"
+        return self.title or self.file_name or LABEL_UNTITLED_CHAT
 
     def _set_title(self, title: str) -> None:
         cleaned = title.strip()
@@ -441,7 +468,7 @@ class SessionWidget(QWidget):
         if not model:
             return
         self._title_worker = TitleWorker(
-            list(self.history),
+            self.history.copy(),
             model=model,
             file_name=self.file_name,
             file_path=self.file_path,
@@ -473,7 +500,7 @@ class SessionWidget(QWidget):
     def _chat(self):
         model = self._selected_model()
         if not model:
-            self.status.showMessage("No Ollama models available to chat with.")
+            self.status.showMessage(STATUS_NO_MODELS_AVAILABLE)
             return
 
         if self._worker and self._worker.isRunning():
@@ -484,7 +511,7 @@ class SessionWidget(QWidget):
         self._render_buf = []
         self._assistant_persisted = False
         self._generation_stopped = False
-        self.status.showMessage(f"Generating with {model}…")
+        self.status.showMessage(status_generating(model))
         self._start_ts = time.time()
         self._chars = 0
         self._append_thinking_block()
@@ -508,7 +535,7 @@ class SessionWidget(QWidget):
         self._settings.setValue("chat/model", model)
         self._preferred_model = model
         self._session_model = model
-        if self.session_id is not None and model and model != "No Ollama Models Found":
+        if self.session_id is not None and model and model != NO_OLLAMA_MODELS_FOUND:
             self.history_store.update_session_model(self.session_id, model)
 
     def _on_error(self, msg: str):
@@ -532,9 +559,7 @@ class SessionWidget(QWidget):
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
         model = getattr(self, "_active_model", self.model_combo.currentText())
-        self.status.showMessage(
-            f"Done in {elapsed:.1f}s | {self._chars} chars @ {cps} cps | {model}"
-        )
+        self.status.showMessage(status_done(elapsed, self._chars, cps, model))
 
     def _finalize_assistant_message(self):
         if self._assistant_persisted:
@@ -629,7 +654,7 @@ class SessionWidget(QWidget):
             elif self._html and block_has_role(self._html[-1], "assistant"):
                 self._html.pop()
                 self._set_html("".join(self._html))
-            self.status.showMessage("Generation stopped")
+            self.status.showMessage(STATUS_GENERATION_STOPPED)
 
     def _busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()

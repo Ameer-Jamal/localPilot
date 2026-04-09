@@ -24,6 +24,14 @@ import stat
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from app_constants import (
+    EXTERNAL_TOOLS_SET_NAME,
+    LEGACY_EXTERNAL_TOOLS_PATH,
+    LOCALPILOT_TOOL_DESCRIPTION,
+    LOCALPILOT_TOOL_NAME,
+    OPTIONS_TOOLS_PATH,
+)
+
 HOME = Path.home()
 ASKCODE_ROOT = Path(__file__).resolve().parent
 LAUNCHER = HOME / ".local" / "bin" / "localpilot"
@@ -110,17 +118,17 @@ def ensure_tool_in_legacy(root_dir: Path) -> bool:
     Old schema: ~/…/<IDE>/tools/External Tools.xml
     Root element is usually <toolSet name="External Tools"> or a container with <toolSet>.
     """
-    path = root_dir / "tools" / "External Tools.xml"
+    path = root_dir / LEGACY_EXTERNAL_TOOLS_PATH
     if not path.exists():
         # Create a minimal legacy file with our tool
-        tset = ET.Element("toolSet", {"name": "External Tools"})
+        tset = ET.Element("toolSet", {"name": EXTERNAL_TOOLS_SET_NAME})
         tree = ET.ElementTree(tset)
     else:
         try:
             tree = ET.parse(path)
         except ET.ParseError:
             warn(f"{path} is not valid XML; recreating minimal structure.")
-            tset = ET.Element("toolSet", {"name": "External Tools"})
+            tset = ET.Element("toolSet", {"name": EXTERNAL_TOOLS_SET_NAME})
             tree = ET.ElementTree(tset)
 
     root = tree.getroot()
@@ -129,28 +137,28 @@ def ensure_tool_in_legacy(root_dir: Path) -> bool:
     if root.tag == "toolSet":
         tset = root
     else:
-        tset = root.find(".//toolSet[@name='External Tools']") or root.find(".//toolSet")
+        tset = root.find(f".//toolSet[@name='{EXTERNAL_TOOLS_SET_NAME}']") or root.find(".//toolSet")
         if tset is None:
             # Try to create classic container:
             # <application><component name="Tools"><toolSet name="External Tools">…</toolSet></component></application>
             if root.tag != "application":
                 app = ET.Element("application")
-                app.extend(list(root))
+                app.extend(root)
                 root.clear()
                 root.append(app)
                 root = app
             comp = root.find("./component[@name='Tools']") or ET.SubElement(root, "component", {"name": "Tools"})
-            tset = ET.SubElement(comp, "toolSet", {"name": "External Tools"})
+            tset = ET.SubElement(comp, "toolSet", {"name": EXTERNAL_TOOLS_SET_NAME})
 
     # Remove existing LocalPilot entries
-    for t in list(tset.findall("./tool")):
-        if t.get("name") == "LocalPilot":
+    for t in tset.findall("./tool"):
+        if t.get("name") == LOCALPILOT_TOOL_NAME:
             tset.remove(t)
 
     # Add new LocalPilot tool
     tool = ET.SubElement(tset, "tool", {
-        "name": "LocalPilot",
-        "description": "Send current selection to LocalPilot",
+        "name": LOCALPILOT_TOOL_NAME,
+        "description": LOCALPILOT_TOOL_DESCRIPTION,
         "showInMainMenu": "true",
         "showInEditor": "true",
         "showInProject": "true",
@@ -175,7 +183,7 @@ def ensure_tool_in_options(root_dir: Path) -> bool:
     """
     New schema: ~/…/<IDE>/options/tools.xml  (with <application><component name="ExternalTools"><toolSet…)
     """
-    path = root_dir / "options" / "tools.xml"
+    path = root_dir / OPTIONS_TOOLS_PATH
     created = False
     if not path.exists():
         app = ET.Element("application")
@@ -197,20 +205,20 @@ def ensure_tool_in_options(root_dir: Path) -> bool:
     if comp is None:
         comp = ET.SubElement(app, "component", {"name": "ExternalTools"})
 
-    tset = comp.find("./toolSet[@name='External Tools']")
+    tset = comp.find(f"./toolSet[@name='{EXTERNAL_TOOLS_SET_NAME}']")
     if tset is None:
-        tset = ET.SubElement(comp, "toolSet", {"name": "External Tools"})
+        tset = ET.SubElement(comp, "toolSet", {"name": EXTERNAL_TOOLS_SET_NAME})
 
     # Remove existing LocalPilot entries
     changed = created
-    for t in list(tset.findall("./tool")):
-        if t.get("name") == "LocalPilot":
+    for t in tset.findall("./tool"):
+        if t.get("name") == LOCALPILOT_TOOL_NAME:
             tset.remove(t)
             changed = True
 
     tool = ET.SubElement(tset, "tool", {
-        "name": "LocalPilot",
-        "description": "Send current selection to LocalPilot",
+        "name": LOCALPILOT_TOOL_NAME,
+        "description": LOCALPILOT_TOOL_DESCRIPTION,
         "showInMainMenu": "true",
         "showInEditor": "true",
         "showInProject": "true",
@@ -246,11 +254,11 @@ def remove_tool_from_file(path: Path) -> bool:
     root = tree.getroot()
     changed = False
     # remove any <tool name="LocalPilot"> anywhere
-    for tool in root.findall(".//tool[@name='LocalPilot']"):
+    for tool in root.findall(f".//tool[@name='{LOCALPILOT_TOOL_NAME}']"):
         parent = None
         # find parent by scanning (ElementTree lacks .getparent())
         for elem in root.iter():
-            for child in list(elem):
+            for child in elem:
                 if child is tool:
                     parent = elem
                     break
@@ -268,8 +276,8 @@ def remove_tool_from_file(path: Path) -> bool:
 def uninstall_everywhere(roots: list[Path]) -> bool:
     changed = False
     for r in roots:
-        changed |= remove_tool_from_file(r / "tools" / "External Tools.xml")
-        changed |= remove_tool_from_file(r / "options" / "tools.xml")
+        changed |= remove_tool_from_file(r / LEGACY_EXTERNAL_TOOLS_PATH)
+        changed |= remove_tool_from_file(r / OPTIONS_TOOLS_PATH)
     return changed
 
 
@@ -285,12 +293,12 @@ def purge_project_shadow(project_dir: Path) -> int:
     if not idea.is_dir():
         return n
     for path in idea.rglob("*.xml"):
-        if "External Tools" in path.name or path.name == "tools.xml":
+        if EXTERNAL_TOOLS_SET_NAME in path.name or path.name == OPTIONS_TOOLS_PATH.name:
             try:
                 if remove_tool_from_file(path):
                     n += 1
             except Exception:
-                pass
+                continue
     return n
 
 
@@ -308,14 +316,14 @@ def doctor(roots: list[Path]):
     print("\nScanning config roots:")
     for r in roots:
         print(" -", r)
-        leg = r / "tools" / "External Tools.xml"
-        opt = r / "options" / "tools.xml"
+        leg = r / LEGACY_EXTERNAL_TOOLS_PATH
+        opt = r / OPTIONS_TOOLS_PATH
         for p in (leg, opt):
             if p.exists():
                 try:
                     tree = ET.parse(p)
                     root = tree.getroot()
-                    found = root.findall(".//tool[@name='LocalPilot']")
+                    found = root.findall(f".//tool[@name='{LOCALPILOT_TOOL_NAME}']")
                     print(f"    {p}: {'FOUND' if found else 'not present'}")
                 except ET.ParseError:
                     print(f"    {p}: invalid XML")

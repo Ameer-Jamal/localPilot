@@ -43,18 +43,22 @@ class SessionSummary:
 class HistoryStore:
     """Small SQLite-backed store for persisted chat sessions."""
 
-    _PERSISTED_SESSION_CLAUSE = """
+    _PERSISTED_SESSION_CLAUSE_TEMPLATE = """
         (
-            TRIM(COALESCE(code, '')) != ''
+            TRIM(COALESCE({session_table}.code, '')) != ''
             OR EXISTS (
                 SELECT 1
                 FROM messages m_keep
-                WHERE m_keep.session_id = sessions.id
+                WHERE m_keep.session_id = {session_table}.id
                   AND m_keep.role != 'system'
                   AND TRIM(COALESCE(m_keep.content, '')) != ''
             )
         )
     """
+
+    @classmethod
+    def _persisted_session_clause(cls, session_table: str) -> str:
+        return cls._PERSISTED_SESSION_CLAUSE_TEMPLATE.format(session_table=session_table)
 
     def __init__(self, db_path: str | Path | None = None):
         self.db_path = Path(db_path or HISTORY_DB_PATH).expanduser()
@@ -236,7 +240,7 @@ class HistoryStore:
             SELECT id, title, file_name, file_path, code, model, is_open, created_at, updated_at
             FROM sessions
             WHERE is_open = 1
-              AND {self._PERSISTED_SESSION_CLAUSE}
+              AND {self._persisted_session_clause("sessions")}
             ORDER BY updated_at ASC, id ASC
             """
         ).fetchall()
@@ -302,16 +306,7 @@ class HistoryStore:
                 ), '') AS preview
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
-            WHERE (
-                TRIM(COALESCE(s.code, '')) != ''
-                OR EXISTS (
-                    SELECT 1
-                    FROM messages m_keep
-                    WHERE m_keep.session_id = s.id
-                      AND m_keep.role != 'system'
-                      AND TRIM(COALESCE(m_keep.content, '')) != ''
-                )
-            )
+            WHERE {self._persisted_session_clause("s")}
             GROUP BY s.id
             ORDER BY s.updated_at DESC, s.id DESC
             LIMIT ?
