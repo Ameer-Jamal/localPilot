@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
             history_store: HistoryStore | None = None,
     ):
         super().__init__()
-        self.setWindowTitle(APP_WINDOW_TITLE)
+        self.setWindowTitle(APP_AUTHORLINE)
         self.resize(1100, 820)
         self.history_store = history_store or HistoryStore()
         self.setStyleSheet(APP_WINDOW_STYLE)
@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         self._pin_label.setTextInteractionFlags(Qt.NoTextInteraction)
         self._pin_label.setToolTip("Always-on-top status")
 
-        self._brand_label = QLabel(APP_AUTHORLINE, header)
+        self._brand_label = QLabel(APP_WINDOW_TITLE, header)
         self._brand_label.setProperty("role", "headerTitle")
         self._brand_label.setTextInteractionFlags(Qt.NoTextInteraction)
 
