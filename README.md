@@ -5,6 +5,11 @@ Local, private AI chat for JetBrains IDEs, backed by Ollama.
 **LocalPilot** lets you highlight code in IntelliJ, PyCharm, WebStorm, or Android Studio and open a dedicated chat that stays pinned to that exact selection. It is designed for people who want fast local assistance without sending source code to a cloud model.
 
 <img width="1115" height="1192" alt="LocalPilot chat window" src="https://github.com/user-attachments/assets/fed472d3-b267-492a-9838-bb30c83b3aae" />
+<img width="1442" height="850" alt="image" src="https://github.com/user-attachments/assets/9faa1ffe-389e-4bae-9d23-8aff87968146" />
+<img width="929" height="750" alt="image" src="https://github.com/user-attachments/assets/63a9640b-f441-4816-9aca-27deeab10d88" />
+<img width="2557" height="1404" alt="image" src="https://github.com/user-attachments/assets/272856b2-f560-4fb5-a18f-ec306b8ea01f" />
+<img width="968" height="888" alt="image" src="https://github.com/user-attachments/assets/34d0e323-f6b8-4b10-aaf5-610ae69b69d3" />
+<img width="975" height="889" alt="image" src="https://github.com/user-attachments/assets/af832134-a834-437c-9b1f-91f111d839d2" />
 
 ## Why LocalPilot
 
