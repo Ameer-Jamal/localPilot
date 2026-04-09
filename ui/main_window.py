@@ -445,7 +445,8 @@ class MainWindow(QMainWindow):
             return
         header = self.centralWidget().findChild(QWidget, "windowHeader")
         header_height = header.height() if header is not None else 56
-        y = header_height + 18
+        content_height = max(0, self.height() - header_height)
+        y = header_height + max(24, (content_height - self._history_reveal_btn.height()) // 2)
         self._history_reveal_btn.move(10, y)
         self._history_reveal_btn.raise_()
 
