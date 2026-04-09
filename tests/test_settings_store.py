@@ -95,6 +95,9 @@ def test_settings_store_defaults_when_empty(monkeypatch):
     prompts = store.get_quick_prompts()
     assert prompts == module.DEFAULT_QUICK_PROMPTS
     assert store.get_confirm_before_closing_tabs() is True
+    defaults = module.default_runtime_settings()
+    runtime = store.get_runtime_settings()
+    assert runtime == defaults
 
 
 def test_fetch_ollama_models_prefers_env(monkeypatch):

@@ -20,6 +20,11 @@ from config import (
     TEMP,
 )
 
+DEFAULT_SERVE_NUM_PARALLEL = 2
+DEFAULT_SERVE_MAX_LOADED_MODELS = 2
+DEFAULT_SERVE_FLASH_ATTENTION = True
+DEFAULT_SERVE_KV_CACHE_TYPE = "q8_0"
+
 DEFAULT_QUICK_PROMPTS: "OrderedDict[str, str]" = OrderedDict(
     [
         ("Explain", "Explain what this code does, list concrete risks, and break down the flow."),
@@ -67,6 +72,20 @@ class HistorySettings:
     keep_forever: bool
     delete_closed_after_days: int
     max_sessions: int
+
+
+def default_runtime_settings() -> RuntimeSettings:
+    return RuntimeSettings(
+        ollama_base_url=OLLAMA_BASE_URL,
+        temperature=TEMP,
+        num_ctx=NUM_CTX,
+        keep_alive=KEEP_ALIVE,
+        default_pull_model=DEFAULT_PULL_MODEL,
+        serve_num_parallel=DEFAULT_SERVE_NUM_PARALLEL,
+        serve_max_loaded_models=DEFAULT_SERVE_MAX_LOADED_MODELS,
+        serve_flash_attention=DEFAULT_SERVE_FLASH_ATTENTION,
+        serve_kv_cache_type=DEFAULT_SERVE_KV_CACHE_TYPE,
+    )
 
 
 def get_qsettings() -> QSettings:
@@ -133,27 +152,44 @@ class SettingsStore:
         self.settings = settings or get_qsettings()
 
     def get_runtime_settings(self) -> RuntimeSettings:
+        defaults = default_runtime_settings()
         return RuntimeSettings(
             ollama_base_url=normalize_ollama_base_url(
-                self.settings.value("runtime/ollama_base_url", OLLAMA_BASE_URL, type=str)
+                self.settings.value("runtime/ollama_base_url", defaults.ollama_base_url, type=str)
             ),
-            temperature=_coerce_float(self.settings.value("runtime/temperature", TEMP), TEMP),
-            num_ctx=max(1024, _coerce_int(self.settings.value("runtime/num_ctx", NUM_CTX), NUM_CTX)),
-            keep_alive=(self.settings.value("runtime/keep_alive", KEEP_ALIVE, type=str) or KEEP_ALIVE).strip(),
+            temperature=_coerce_float(self.settings.value("runtime/temperature", defaults.temperature), defaults.temperature),
+            num_ctx=max(
+                1024,
+                _coerce_int(self.settings.value("runtime/num_ctx", defaults.num_ctx), defaults.num_ctx),
+            ),
+            keep_alive=(
+                self.settings.value("runtime/keep_alive", defaults.keep_alive, type=str) or defaults.keep_alive
+            ).strip(),
             default_pull_model=(
-                self.settings.value("runtime/default_pull_model", DEFAULT_PULL_MODEL, type=str) or DEFAULT_PULL_MODEL
+                self.settings.value("runtime/default_pull_model", defaults.default_pull_model, type=str)
+                or defaults.default_pull_model
             ).strip(),
             serve_num_parallel=max(
-                1, _coerce_int(self.settings.value("runtime/serve_num_parallel", 2), 2)
+                1,
+                _coerce_int(
+                    self.settings.value("runtime/serve_num_parallel", defaults.serve_num_parallel),
+                    defaults.serve_num_parallel,
+                ),
             ),
             serve_max_loaded_models=max(
-                1, _coerce_int(self.settings.value("runtime/serve_max_loaded_models", 2), 2)
+                1,
+                _coerce_int(
+                    self.settings.value("runtime/serve_max_loaded_models", defaults.serve_max_loaded_models),
+                    defaults.serve_max_loaded_models,
+                ),
             ),
             serve_flash_attention=_coerce_bool(
-                self.settings.value("runtime/serve_flash_attention", True), True
+                self.settings.value("runtime/serve_flash_attention", defaults.serve_flash_attention),
+                defaults.serve_flash_attention,
             ),
             serve_kv_cache_type=(
-                self.settings.value("runtime/serve_kv_cache_type", "q8_0", type=str) or "q8_0"
+                self.settings.value("runtime/serve_kv_cache_type", defaults.serve_kv_cache_type, type=str)
+                or defaults.serve_kv_cache_type
             ).strip(),
         )
 

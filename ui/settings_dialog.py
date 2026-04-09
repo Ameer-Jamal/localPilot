@@ -23,7 +23,23 @@ from PySide6.QtWidgets import (
 )
 
 from config import APP_AUTHOR_NAME, APP_DISPLAY_NAME
-from settings_store import DEFAULT_QUICK_PROMPTS, HistorySettings, RuntimeSettings
+from settings_store import DEFAULT_QUICK_PROMPTS, HistorySettings, RuntimeSettings, default_runtime_settings
+
+
+class NoWheelSpinBox(QSpinBox):
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+            return
+        event.ignore()
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+            return
+        event.ignore()
 
 
 class SettingsDialog(QDialog):
@@ -236,6 +252,15 @@ class SettingsDialog(QDialog):
         intro.setProperty("role", "body")
         layout.addWidget(intro)
 
+        runtime_actions = QHBoxLayout()
+        runtime_actions.setContentsMargins(0, 0, 0, 0)
+        runtime_actions.setSpacing(10)
+        runtime_actions.addStretch(1)
+        restore_runtime_btn = QPushButton("Restore Runtime Defaults", content)
+        restore_runtime_btn.clicked.connect(self._restore_runtime_defaults)
+        runtime_actions.addWidget(restore_runtime_btn)
+        layout.addLayout(runtime_actions)
+
         layout.addWidget(
             self._build_form_card(
                 "Connection",
@@ -332,7 +357,8 @@ class SettingsDialog(QDialog):
         )
 
     def _build_generation_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
-        self.temperature_spin = QDoubleSpinBox(parent)
+        self.temperature_spin = NoWheelDoubleSpinBox(parent)
+        self.temperature_spin.setFocusPolicy(Qt.StrongFocus)
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setRange(0.0, 4.0)
         self.temperature_spin.setSingleStep(0.05)
@@ -348,7 +374,8 @@ class SettingsDialog(QDialog):
             parent,
         )
 
-        self.num_ctx_spin = QSpinBox(parent)
+        self.num_ctx_spin = NoWheelSpinBox(parent)
+        self.num_ctx_spin.setFocusPolicy(Qt.StrongFocus)
         self.num_ctx_spin.setRange(1024, 1_000_000)
         self.num_ctx_spin.setSingleStep(1024)
         self.num_ctx_spin.setValue(runtime.num_ctx)
@@ -377,7 +404,8 @@ class SettingsDialog(QDialog):
         )
 
     def _build_server_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
-        self.num_parallel_spin = QSpinBox(parent)
+        self.num_parallel_spin = NoWheelSpinBox(parent)
+        self.num_parallel_spin.setFocusPolicy(Qt.StrongFocus)
         self.num_parallel_spin.setRange(1, 64)
         self.num_parallel_spin.setValue(runtime.serve_num_parallel)
         self._add_setting_row(
@@ -391,7 +419,8 @@ class SettingsDialog(QDialog):
             parent,
         )
 
-        self.max_loaded_spin = QSpinBox(parent)
+        self.max_loaded_spin = NoWheelSpinBox(parent)
+        self.max_loaded_spin.setFocusPolicy(Qt.StrongFocus)
         self.max_loaded_spin.setRange(1, 64)
         self.max_loaded_spin.setValue(runtime.serve_max_loaded_models)
         self._add_setting_row(
@@ -570,7 +599,8 @@ class SettingsDialog(QDialog):
         rows.setContentsMargins(0, 0, 0, 0)
         rows.setSpacing(14)
 
-        self.delete_closed_days_spin = QSpinBox(retention)
+        self.delete_closed_days_spin = NoWheelSpinBox(retention)
+        self.delete_closed_days_spin.setFocusPolicy(Qt.StrongFocus)
         self.delete_closed_days_spin.setRange(1, 3650)
         self.delete_closed_days_spin.setValue(history.delete_closed_after_days)
         self._add_setting_row(
@@ -584,7 +614,8 @@ class SettingsDialog(QDialog):
             retention,
         )
 
-        self.max_sessions_spin = QSpinBox(retention)
+        self.max_sessions_spin = NoWheelSpinBox(retention)
+        self.max_sessions_spin.setFocusPolicy(Qt.StrongFocus)
         self.max_sessions_spin.setRange(1, 100000)
         self.max_sessions_spin.setValue(history.max_sessions)
         self._add_setting_row(
@@ -661,6 +692,18 @@ class SettingsDialog(QDialog):
         self.quick_prompts_table.setRowCount(0)
         for name, prompt in DEFAULT_QUICK_PROMPTS.items():
             self._append_prompt_row(name, prompt)
+
+    def _restore_runtime_defaults(self) -> None:
+        defaults = default_runtime_settings()
+        self.base_url_edit.setText(defaults.ollama_base_url)
+        self.pull_model_edit.setText(defaults.default_pull_model)
+        self.temperature_spin.setValue(defaults.temperature)
+        self.num_ctx_spin.setValue(defaults.num_ctx)
+        self.keep_alive_edit.setText(defaults.keep_alive)
+        self.num_parallel_spin.setValue(defaults.serve_num_parallel)
+        self.max_loaded_spin.setValue(defaults.serve_max_loaded_models)
+        self.flash_attention_check.setChecked(defaults.serve_flash_attention)
+        self.kv_cache_edit.setText(defaults.serve_kv_cache_type)
 
     def get_runtime_settings(self) -> RuntimeSettings:
         return RuntimeSettings(

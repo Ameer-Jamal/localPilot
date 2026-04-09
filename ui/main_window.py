@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from config import APP_AUTHORLINE, APP_NAME, APP_ORG, APP_WINDOW_TITLE
 from history_store import HistoryStore
+from ollama_client import unload_tracked_models
 from settings_store import SettingsStore
 from ui.history_panel import HistoryPanel
 from ui.session_widget import SessionWidget
@@ -468,6 +469,10 @@ class MainWindow(QMainWindow):
             sock.disconnectFromServer()
 
     def closeEvent(self, event):
+        try:
+            unload_tracked_models()
+        except Exception:
+            pass
         try:
             self.history_store.close()
         finally:

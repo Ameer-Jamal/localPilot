@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import time
-from html import escape
 
 from PySide6.QtCore import Qt, QTimer, Signal, QSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -24,12 +23,14 @@ from markdown_it import MarkdownIt
 
 from chat_logic import (
     has_meaningful_messages,
+    pick_preferred_model,
     should_finalize_pending_assistant,
+    should_handle_worker_signal,
     should_persist_initial_session,
 )
 from config import APP_NAME, APP_ORG, MODEL
 from history_store import HistoryStore
-from ollama_client import warm_up_model
+from ollama_client import remember_local_server_process, stop_local_ollama_server, warm_up_model
 from resources.html_template import HTML_TEMPLATE
 from settings_store import (
     SettingsStore,
@@ -43,6 +44,7 @@ from ui.theme import ACCENT_BUTTON_STYLE, PRIMARY_BUTTON_STYLE, SUBTLE_BUTTON_ST
 from utils import lang_hint
 from workers.chat_worker import ChatWorker
 from workers.title_worker import TitleWorker
+from transcript_render import block_has_role, render_code_context_block, render_message_block, render_thinking_block
 
 md = MarkdownIt()
 LEGACY_SETTINGS_ORG = "AskAboutSelection"
@@ -75,7 +77,8 @@ class SessionWidget(QWidget):
         self.title = (session_title or file_name or "New Chat").strip() or "Untitled Chat"
         self.history_store = history_store
         self.session_id = session_id
-        self._preferred_model = persisted_model or MODEL
+        self._session_model = (persisted_model or "").strip()
+        self._preferred_model = self._session_model or MODEL
         self._assistant_persisted = False
         self._generation_stopped = False
         self._allow_auto_title = session_id is None
@@ -125,6 +128,8 @@ class SessionWidget(QWidget):
         # Run Ollama button
         self.run_ollama_btn = self._mk_btn("Start Ollama", self._run_ollama_server, variant="subtle")
         self.run_ollama_btn.setVisible(False)
+        self.stop_ollama_btn = self._mk_btn("Stop Ollama", self._stop_ollama_server, variant="subtle")
+        self.stop_ollama_btn.setVisible(False)
 
         # Install default model button
         self.install_model_btn = self._mk_btn("Install Model", self._install_default_model, variant="accent")
@@ -136,6 +141,7 @@ class SessionWidget(QWidget):
         top.addWidget(self.model_combo)
         top.addWidget(self.refresh_btn)
         top.addWidget(self.run_ollama_btn)
+        top.addWidget(self.stop_ollama_btn)
         top.addWidget(self.install_model_btn)
         top.addWidget(self.settings_btn)
 
@@ -145,10 +151,10 @@ class SessionWidget(QWidget):
 
         # Transcript view
         self.view = QWebEngineView()
-        self.view.setHtml(HTML_TEMPLATE)
         self._page_ready = False
         self._pending_html = None
         self.view.loadFinished.connect(self._on_page_ready)
+        self.view.setHtml(HTML_TEMPLATE)
 
         # Input row
         bottom = QHBoxLayout()
@@ -220,9 +226,11 @@ class SessionWidget(QWidget):
             saved_model = get_saved_chat_model(self._settings)
             if not saved_model:
                 saved_model = QSettings(LEGACY_SETTINGS_ORG, APP_NAME).value("chat/model", MODEL, type=str)
-            preferred = next(
-                (model for model in (self._preferred_model, saved_model, MODEL) if model in current_model_list),
-                current_model_list[0],
+            preferred = pick_preferred_model(
+                current_model_list,
+                session_model=self._session_model,
+                saved_model=saved_model,
+                default_model=MODEL,
             )
             self.model_combo.setCurrentText(preferred)
             self.model_combo.setEnabled(True)
@@ -230,6 +238,7 @@ class SessionWidget(QWidget):
             self.status.showMessage("Ready")
             self.refresh_btn.setVisible(False)
             self.run_ollama_btn.setVisible(False)
+            self.stop_ollama_btn.setVisible(True)
             self.install_model_btn.setVisible(False)
         else:
             server_up = is_ollama_running(self._runtime_settings)
@@ -244,6 +253,7 @@ class SessionWidget(QWidget):
                 self.status.showMessage("Ollama server not running. Click Run Ollama to start it.")
             self.refresh_btn.setVisible(True)
             self.run_ollama_btn.setVisible(not server_up)
+            self.stop_ollama_btn.setVisible(server_up)
             self.install_model_btn.setVisible(server_up)
         self.model_combo.blockSignals(False)
 
@@ -253,18 +263,36 @@ class SessionWidget(QWidget):
         env.update(self._runtime_settings.serve_env)
         cmd = shutil.which("ollama") or "/opt/homebrew/opt/ollama/bin/ollama"
         try:
-            subprocess.Popen(
+            process = subprocess.Popen(
                 [cmd, "serve"],
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
+            remember_local_server_process(process)
             self.status.showMessage("Ollama server starting…")
             self.run_ollama_btn.setVisible(False)
+            self.stop_ollama_btn.setVisible(True)
             self._begin_ollama_refresh()
         except Exception as exc:
             self.status.showMessage(f"Failed to start Ollama: {exc}")
+
+    def _stop_ollama_server(self):
+        state, unloaded = stop_local_ollama_server()
+        if state == "stopped":
+            self.status.showMessage("Stopped Ollama started by LocalPilot")
+        elif state == "released":
+            count = len(unloaded)
+            noun = "model" if count == 1 else "models"
+            self.status.showMessage(
+                f"Released {count} loaded {noun}. Ollama is still running because it was not started by LocalPilot."
+            )
+        elif state == "idle":
+            self.status.showMessage("No LocalPilot-managed Ollama process or loaded models to stop")
+        else:
+            self.status.showMessage("Failed to stop Ollama cleanly")
+        self._setup_model_selector()
 
     def _install_default_model(self):
         cmd = shutil.which("ollama") or "/opt/homebrew/opt/ollama/bin/ollama"
@@ -367,11 +395,11 @@ class SessionWidget(QWidget):
         self.history = [{"role": "system", "content": content}]
 
     def _restore_transcript(self):
-        self._append_code_context_block()
+        self._append_code_context_block(push_to_view=False)
         for msg in self.history:
             if msg.get("role") == "system":
                 continue
-            self._append_role_block(msg.get("role", "user"), msg.get("content", ""))
+            self._append_role_block(msg.get("role", "user"), msg.get("content", ""), push_to_view=False)
         self._set_html("".join(self._html))
 
     def _ensure_session(self):
@@ -441,7 +469,6 @@ class SessionWidget(QWidget):
         elif self.session_id is not None:
             self.historyUpdated.emit()
         self._append_role_block("user", text)
-        self._flush_render(True)
 
     def _chat(self):
         model = self._selected_model()
@@ -460,8 +487,7 @@ class SessionWidget(QWidget):
         self.status.showMessage(f"Generating with {model}…")
         self._start_ts = time.time()
         self._chars = 0
-        self._append_role_block("assistant", "")
-        self._flush_render(True)
+        self._append_thinking_block()
 
         self._active_model = model
         self._worker = ChatWorker(self.history, model=model)
@@ -472,6 +498,8 @@ class SessionWidget(QWidget):
         self._render_timer.start()
 
     def _on_chunk(self, s: str):
+        if not should_handle_worker_signal(self._worker, self.sender()):
+            return
         self._render_buf.append(s)
         self._assistant_md += s
         self._chars += len(s)
@@ -479,19 +507,28 @@ class SessionWidget(QWidget):
     def _on_model_changed(self, model: str):
         self._settings.setValue("chat/model", model)
         self._preferred_model = model
+        self._session_model = model
         if self.session_id is not None and model and model != "No Ollama Models Found":
             self.history_store.update_session_model(self.session_id, model)
 
     def _on_error(self, msg: str):
+        if not should_handle_worker_signal(self._worker, self.sender()):
+            return
         rendered = f"\n\n**Error:** {msg}\n"
         self._render_buf.append(rendered)
         self._assistant_md += rendered
 
     def _on_done(self):
+        if not should_handle_worker_signal(self._worker, self.sender()):
+            return
         self._render_timer.stop()
         self._flush_render(True)
         if self._assistant_md:
             self._finalize_assistant_message()
+        elif self._html and block_has_role(self._html[-1], "assistant"):
+            self._html.pop()
+            self._set_html("".join(self._html))
+        self._worker = None
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
         model = getattr(self, "_active_model", self.model_combo.currentText())
@@ -514,29 +551,32 @@ class SessionWidget(QWidget):
         self._maybe_generate_title()
 
     # rendering
-    def _append_code_context_block(self):
+    def _append_code_context_block(self, *, push_to_view: bool = False):
         if not self.code.strip():
             return
-        lang = self.lang or "plaintext"
-        self._html.append('<div class="role">system</div>')
-        self._html.append(
-            f'<details open>'
-            f'<summary style="cursor:pointer">Pinned code context ({lang})</summary>'
-            f'<pre><code class="language-{lang}">{escape(self.code)}</code></pre>'
-            f'</details><hr/>'
-        )
+        block_html = render_code_context_block(self.code, self.lang or "plaintext")
+        self._html.append(block_html)
+        if push_to_view:
+            self._set_html("".join(self._html))
 
-    def _append_role_block(self, role: str, content_md: str):
-        label = {"system": "system", "user": "you", "assistant": "assistant"}.get(role, role)
-        self._html.append(f'<div class="role">{label}</div>')
-        self._html.append(md.render(content_md or ""))
+    def _append_role_block(self, role: str, content_md: str, *, push_to_view: bool = True):
+        block_html = render_message_block(role, md.render(content_md or ""))
+        self._html.append(block_html)
+        if push_to_view:
+            self._set_html("".join(self._html))
+
+    def _append_thinking_block(self, *, push_to_view: bool = True):
+        block_html = render_thinking_block()
+        self._html.append(block_html)
+        if push_to_view:
+            self._set_html("".join(self._html))
 
     def _flush_render(self, force=False):
         if self._render_buf or force:
-            if len(self._html) >= 2 and "assistant" in self._html[-2]:
-                self._html[-1] = md.render(self._assistant_md)
+            if self._html and block_has_role(self._html[-1], "assistant"):
+                self._html[-1] = render_message_block("assistant", md.render(self._assistant_md))
+                self._replace_last_block_in_view(self._html[-1])
             self._render_buf = []
-            self._set_html("".join(self._html))
 
     def _on_page_ready(self, ok: bool):
         self._page_ready = bool(ok)
@@ -549,6 +589,13 @@ class SessionWidget(QWidget):
             self._pending_html = html
             return
         self._really_set_html(html)
+
+    def _replace_last_block_in_view(self, block_html: str):
+        if not hasattr(self, "_page_ready") or not self._page_ready:
+            self._pending_html = "".join(self._html)
+            return
+        js = f"replaceLastBlock({json.dumps(block_html)});"
+        self.view.page().runJavaScript(js)
 
     def _really_set_html(self, html: str):
         js = f"setHtml({json.dumps(html)});"
@@ -566,11 +613,12 @@ class SessionWidget(QWidget):
         self._chat()
 
     def _stop_generation(self):
-        if self._worker and self._worker.isRunning():
+        worker = self._worker
+        if worker and worker.isRunning():
             self._generation_stopped = True
             try:
-                self._worker.stop()
-                self._worker.wait()
+                worker.stop()
+                worker.wait()
             except Exception:
                 pass
             self._worker = None
@@ -578,6 +626,9 @@ class SessionWidget(QWidget):
             self._flush_render(True)
             if getattr(self, "_assistant_md", ""):
                 self._finalize_assistant_message()
+            elif self._html and block_has_role(self._html[-1], "assistant"):
+                self._html.pop()
+                self._set_html("".join(self._html))
             self.status.showMessage("Generation stopped")
 
     def _busy(self) -> bool:

@@ -120,3 +120,84 @@ def test_generate_chat_title_sends_non_streaming_request(monkeypatch):
 def test_normalize_chat_title_limits_noise(monkeypatch):
     client = load_client(monkeypatch, lambda *a, **k: DummyResponse([]))
     assert client.normalize_chat_title('  "Investigate renderer jitter: detailed follow-up plan"  ') == 'Investigate renderer jitter'
+
+
+def test_warm_up_model_only_warms_once_per_model(monkeypatch):
+    seen = []
+
+    def fake_post(*a, **k):
+        seen.append(k["json"])
+        return DummyResponse([])
+
+    client = load_client(monkeypatch, fake_post)
+    client.warm_up_model("m")
+    client.warm_up_model("m")
+    for _ in range(20):
+        if seen:
+            break
+        import time
+        time.sleep(0.01)
+    assert len(seen) == 1
+    assert seen[0]["model"] == "m"
+
+
+def test_unload_tracked_models_uses_keep_alive_zero(monkeypatch):
+    seen = []
+
+    def fake_post(*a, **k):
+        seen.append(k["json"])
+        return DummyResponse([])
+
+    client = load_client(monkeypatch, fake_post)
+    q = queue.Queue()
+    client.stream_ollama([{'role': 'user', 'content': 'prompt'}], q, model='m')
+    while q.get() is not None:
+        pass
+    unloaded = client.unload_tracked_models()
+    assert unloaded == ['m']
+    assert seen[-1]["keep_alive"] == 0
+    assert seen[-1]["model"] == "m"
+
+
+def test_stop_local_ollama_server_stops_tracked_process(monkeypatch):
+    client = load_client(monkeypatch, lambda *a, **k: DummyResponse([]))
+
+    class DummyProcess:
+        def __init__(self):
+            self._poll = None
+            self.terminated = False
+
+        def poll(self):
+            return self._poll
+
+        def terminate(self):
+            self.terminated = True
+            self._poll = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    proc = DummyProcess()
+    client.remember_local_server_process(proc)
+    state, unloaded = client.stop_local_ollama_server()
+    assert state == "stopped"
+    assert unloaded == []
+    assert proc.terminated is True
+
+
+def test_stop_local_ollama_server_releases_models_when_process_not_tracked(monkeypatch):
+    seen = []
+
+    def fake_post(*a, **k):
+        seen.append(k["json"])
+        return DummyResponse([])
+
+    client = load_client(monkeypatch, fake_post)
+    q = queue.Queue()
+    client.stream_ollama([{'role': 'user', 'content': 'prompt'}], q, model='m')
+    while q.get() is not None:
+        pass
+    state, unloaded = client.stop_local_ollama_server()
+    assert state == "released"
+    assert unloaded == ["m"]
+    assert seen[-1]["keep_alive"] == 0

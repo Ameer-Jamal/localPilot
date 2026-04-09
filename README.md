@@ -1,43 +1,43 @@
-# LocalPilot — local, free, private AI for your JetBrains IDE
+# LocalPilot
 
-**LocalPilot** lets you highlight code in IntelliJ, PyCharm, WebStorm, or Android Studio and instantly chat with a fully
-local LLM about that exact selection.
-<img width="1115" height="1192" alt="image" src="https://github.com/user-attachments/assets/fed472d3-b267-492a-9838-bb30c83b3aae" />
-<img width="936" height="1319" alt="image" src="https://github.com/user-attachments/assets/384df695-9fc0-42ad-8538-4975ed249742" />
-<img width="953" height="706" alt="image" src="https://github.com/user-attachments/assets/b21a2c98-a745-450b-a8bc-ab37a4b2fa7c" />
- 
-- 🧠 **Local & free**: uses your **Ollama** on `localhost` (no cloud, no tokens)
-- 🔒 **Private by design**: your code never leaves your machine
-- 🧵 **Tabbed chats** per selection
-- 💾 **Persistent history** stored locally in SQLite
-- ⚙️ **Settings UI** for Ollama defaults and quick prompts
-- 📌 **Always-on-top** toggle (persists)
-- ⏱️ **Streaming** responses with free scrolling
-- 📋 **Copy code** buttons on blocks
-- ⛔ **Stop** generating anytime
+Local, private AI chat for JetBrains IDEs, backed by Ollama.
 
----
+**LocalPilot** lets you highlight code in IntelliJ, PyCharm, WebStorm, or Android Studio and open a dedicated chat that stays pinned to that exact selection. It is designed for people who want fast local assistance without sending source code to a cloud model.
+
+<img width="1115" height="1192" alt="LocalPilot chat window" src="https://github.com/user-attachments/assets/fed472d3-b267-492a-9838-bb30c83b3aae" />
+
+## Why LocalPilot
+
+- Fully local. Uses your Ollama server on `localhost`.
+- Private by default. Your code stays on your machine.
+- Selection-aware. Each highlighted snippet opens in its own chat context.
+- Built for iteration. Tabs, saved chats, quick prompts, streaming, and code-copy buttons are all in the desktop app.
+- Practical controls. You can start Ollama, stop what LocalPilot started, or release loaded models to free memory.
+
+## Current features
+
+- Tabbed chats per code selection
+- Persistent chat history in local SQLite
+- Left-side history panel with reopen and delete
+- In-app settings for Ollama defaults, history retention, and quick prompts
+- Editable quick prompt buttons
+- Streaming responses with syntax highlighting
+- Copy buttons on code blocks
+- Concise AI-generated chat titles
+- Always-on-top toggle
+- Stop generation anytime
+- Browser-style `+` tab for blank chats
 
 ## Requirements
 
-* **macOS** (tested on Apple Silicon).
-* **Python 3.10+**
-* **Ollama** installed and serving locally. Example (adjust to your machine):
+- macOS
+- Python 3.10+
+- Ollama installed locally
+- At least one Ollama model pulled, such as `qwen2.5-coder:7b`, `gemma3:12b`, `llama3.1`, or `mistral`
 
-```bash  
-  OLLAMA_NUM_PARALLEL=2 \
-  OLLAMA_MAX_LOADED_MODELS=1 \
-  OLLAMA_FLASH_ATTENTION=1 \
-  OLLAMA_KV_CACHE_TYPE=q8_0 \
-  ollama serve
-```
+LocalPilot can work with Ollama already running, or it can try to start Ollama from the app when needed.
 
-* A model pulled in Ollama (e.g. `llama3.1`, `qwen2.5-coder`, `mistral`).
-  Local Pilot will try and configure the URL and get all the models installed on your machine
-
----
-
-## Quick start (90 seconds)
+## Quick start
 
 ```bash
 git clone https://github.com/Ameer-Jamal/localPilot.git
@@ -45,147 +45,158 @@ cd localPilot
 python3 installer.py
 ```
 
-What this does:
+This will:
 
-* Writes a launcher at `~/.local/bin/localpilot`.
-* Registers a user-level **External Tool: “LocalPilot”** in all detected JetBrains/Android Studio configs (supports both
-  legacy and modern XML schemas).
+- create the launcher at `~/.local/bin/localpilot`
+- register a user-level JetBrains External Tool named `LocalPilot`
+- support both legacy and newer JetBrains external-tool XML layouts
 
-> **Important:** Fully **quit** the IDE(s) (Cmd+Q), then relaunch so they reload the updated config.
+After install, fully quit your IDE and relaunch it so JetBrains reloads the external tool configuration.
 
----
+## Using it
 
-## Using it in the IDE
+1. Highlight code in your IDE.
+2. Run `Tools -> External Tools -> LocalPilot`.
+3. Ask a question in the LocalPilot window.
 
-1. Highlight any code in the editor.
-2. Run **Tools → External Tools → LocalPilot** (or bind a keyboard shortcut or use global search by pressing shift twice and searching for "LocalPilot").
-3. A small chat window opens:
+What you get in the app:
 
-    * The pinned **code context** is at the top (collapsible).
-    * Type your question (Cmd/Ctrl+Enter to send).
-    * Or use the built in quick commands
-    * Use **Settings** to change Ollama defaults and add/edit/remove quick prompt buttons
-    * Use **Stop** to cancel generation.
-    * **Copy** appears on code blocks (always visible; shows “Copied!” on click).
-    * **Pin** (top-left) keeps the window floating above your IDE; state persists.
+- the selected code is pinned at the top of the chat
+- each new selection opens in its own tab
+- `Settings` lets you manage runtime defaults, quick prompts, and history retention
+- `History` shows saved chats you can reopen later
+- `Stop` cancels the current response
+- `Stop Ollama` stops the Ollama process if LocalPilot launched it, or releases loaded models if it did not
 
-Each new code selection opens a **new tab** so conversations don’t mix. Closing the last tab closes the window (with a
-“Are you sure?” safety prompt if something is still generating). Open tabs are restored on the next launch, and their
-history is saved locally in `~/.localpilot/history.db`.
+You can also open a blank tab with the `+` tab and use LocalPilot as a general local coding chat, not just for pinned selections.
 
----
+## Settings and persistence
 
-## Configuration
+Most configuration is now done in the app, not by editing Python files.
 
-Runtime settings live in `config.py`:
+Runtime settings in the UI include:
 
-```python
-OLLAMA_BASE_URL = "http://localhost:11434/api"
-TEMP = 0.2
-NUM_CTX = 16384
-KEEP_ALIVE = "10m"
-DEFAULT_PULL_MODEL = "qwen2.5-coder:7b"
+- Ollama API base URL
+- default model to install
+- temperature
+- context window
+- keep-alive duration
+- local Ollama launch defaults
+
+Quick prompts in the UI can be:
+
+- added
+- edited
+- removed
+- reset to the starter set
+
+History settings in the UI include:
+
+- keep history forever
+- delete closed chats older than `N` days
+- cap total stored sessions
+- clear all saved history manually
+
+Saved history lives at:
+
+```text
+~/.localpilot/history.db
 ```
 
-UI tweaks you may like:
+You can override storage paths with:
 
-* Default always-on-top: toggle via the pin button; persists in `QSettings` as `ui/pin_on_top`.
-* HTML theme / syntax highlight: see `resources/html_template.py` & `resources/template.html`.
-* Behavior (tabs, copy styling, autoscroll): in `ui/session_widget.py`.
+- `LOCALPILOT_HOME`
+- `LOCALPILOT_HISTORY_DB`
 
-Environment overrides:
+For advanced environment overrides:
 
-* `OLLAMA_URL` to point at a different Ollama API base URL
-* `MODEL_LIST` to pin the visible model list
-* `LOCALPILOT_HOME` or `LOCALPILOT_HISTORY_DB` to move persistent history
+- `OLLAMA_URL` changes the Ollama API base URL
+- `MODEL_LIST` pins the visible model list
 
-Most day-to-day changes no longer require editing code directly; use the in-app **Settings** button to manage Ollama
-runtime defaults and quick prompt buttons.
+## Ollama notes
 
----
-
-## Uninstall
+If you prefer to run Ollama yourself, a typical local setup looks like:
 
 ```bash
-python3 installer.py uninstall
-# optionally remove any project-level tool that could shadow user-level config
-python3 installer.py uninstall --purge-project
+OLLAMA_NUM_PARALLEL=2 \
+OLLAMA_MAX_LOADED_MODELS=1 \
+OLLAMA_FLASH_ATTENTION=1 \
+OLLAMA_KV_CACHE_TYPE=q8_0 \
+ollama serve
 ```
 
----
+LocalPilot also has a settings UI for these launch defaults, so most users do not need to keep editing shell commands manually.
 
-## Doctor (troubleshooting)
+## Troubleshooting
+
+Run:
 
 ```bash
 python3 installer.py doctor
 ```
 
-This prints which IDE configs contain the **LocalPilot** tool and whether the launcher exists.
+This prints which IDE configs contain the `LocalPilot` tool and whether the launcher exists.
 
 Common fixes:
 
-* **I don’t see the tool in the IDE.**
-  Run `python3 installer.py` again, then **fully quit and relaunch** the IDE.
-  Some IDEs read from `~/Library/Application Support/<IDE>/options/tools.xml`, others from `…/tools/External Tools.xml`.
-  The installer writes **both**.
+- **I do not see the tool in the IDE.**  
+  Run `python3 installer.py` again, then fully quit and relaunch the IDE.
 
-* **Tool exists but nothing happens when I run it.**
-  In Preferences → Tools → External Tools → **LocalPilot**, verify:
+- **The tool exists but nothing happens when I run it.**  
+  In JetBrains External Tools, verify:
 
-    * **Program:** `~/.local/bin/localpilot`
-    * **Parameters:**
+  - Program: `~/.local/bin/localpilot`
+  - Parameters:
 
-      ```
-      --file $FileName$ --filepath $FilePath$ \
-      --sel-start $SelectionStart$ --sel-end $SelectionEnd$ \
-      --sel-start-line $SelectionStartLine$ --sel-start-col $SelectionStartColumn$ \
-      --sel-end-line $SelectionEndLine$ --sel-end-col $SelectionEndColumn$
-      ```
+    ```text
+    --file $FileName$ --filepath $FilePath$ \
+    --sel-start $SelectionStart$ --sel-end $SelectionEnd$ \
+    --sel-start-line $SelectionStartLine$ --sel-start-col $SelectionStartColumn$ \
+    --sel-end-line $SelectionEndLine$ --sel-end-col $SelectionEndColumn$
+    ```
 
-      Also try the launcher directly:
+  You can also test the launcher directly:
 
-      ```bash
-      ~/.local/bin/localpilot --selection "hello" --file demo.txt
-      ```
+  ```bash
+  ~/.local/bin/localpilot --selection "hello" --file demo.txt
+  ```
 
-* **A project-level tool is shadowing LocalPilot.**
-  Run:
+- **A project-level tool is shadowing the user-level tool.**
 
   ```bash
   python3 installer.py uninstall --purge-project
   python3 installer.py install
   ```
 
-* **Android Studio shows the menu but nothing opens.**
-  Ensure Android Studio is **quit/restarted** after install. Then run `python3 installer.py doctor` to confirm the tool
-  entry is **FOUND** for Android Studio’s config root.
+- **Android Studio shows the tool but nothing opens.**  
+  Fully restart Android Studio, then run `python3 installer.py doctor`.
 
-* **Large selections / “first character missing.”**
-  The script accepts offsets and 1-based line/column macros from JetBrains. If IntelliJ still passes raw `$Selection…$`
-  text (unexpanded), LocalPilot falls back to reading the selection from the file or stdin. If you still see trimming,
-  please open an issue with the exact command printed in *Run* → *External Tools* console.
+- **Large selections behave oddly.**  
+  LocalPilot accepts both offset-based and line/column-based selection macros from JetBrains. If your IDE passes raw macro text instead of expanded values, LocalPilot falls back to reading from the file or stdin.
 
----
+## Uninstall
+
+```bash
+python3 installer.py uninstall
+python3 installer.py uninstall --purge-project
+```
 
 ## Privacy
 
-All inference is local. Your code never leaves your machine. LocalPilot only talks to your local Ollama server.
-
----
+All inference is local. LocalPilot only talks to your local Ollama server.
 
 ## Contributing
 
-PRs welcome! Please:
+PRs are welcome. If you contribute:
 
-* Keep installer idempotent and non-destructive of other tools.
-* Test against at least one IntelliJ & one PyCharm version.
-* Avoid breaking `~/.local/bin/localpilot`.
-
----
+- keep the installer idempotent
+- avoid destructive changes to existing JetBrains tool configs
+- avoid breaking `~/.local/bin/localpilot`
+- test at least one IntelliJ build and one PyCharm build if you touch installer behavior
 
 ## License
 
-Copyright © 2025 Ameer Jamal <br>
-This project is licensed under the [Custom Non-Commercial License](LICENSE) <br>
-This project is open for personal or academic use only.
-Commercial use, redistribution, or integration into proprietary products is prohibited without prior written permission.
+Copyright © 2025 Ameer Jamal  
+Licensed under the [Custom Non-Commercial License](LICENSE).
+
+Personal and academic use are allowed. Commercial use, redistribution, or integration into proprietary products requires prior written permission.

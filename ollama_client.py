@@ -10,6 +10,39 @@ import requests
 from config import MODEL
 from settings_store import SettingsStore
 
+_MODEL_STATE_LOCK = threading.Lock()
+_WARMED_MODELS: set[str] = set()
+_TOUCHED_MODELS: set[str] = set()
+_LOCAL_SERVER_LOCK = threading.Lock()
+_LOCAL_SERVER_PROCESS = None
+
+
+def _track_model(model: str) -> None:
+    cleaned = (model or "").strip()
+    if not cleaned:
+        return
+    with _MODEL_STATE_LOCK:
+        _TOUCHED_MODELS.add(cleaned)
+
+
+def remember_local_server_process(process) -> None:
+    with _LOCAL_SERVER_LOCK:
+        global _LOCAL_SERVER_PROCESS
+        _LOCAL_SERVER_PROCESS = process
+
+
+def _running_local_server_process():
+    with _LOCAL_SERVER_LOCK:
+        process = _LOCAL_SERVER_PROCESS
+    if process is None:
+        return None
+    try:
+        if process.poll() is None:
+            return process
+    except Exception:
+        return None
+    return None
+
 
 def _non_system_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     return [
@@ -67,6 +100,7 @@ def generate_chat_title(
     title_messages = build_title_messages(messages, file_name=file_name, file_path=file_path)
     if not model or not title_messages:
         return ""
+    _track_model(model)
     try:
         response = requests.post(
             runtime.ollama_chat_url,
@@ -103,6 +137,7 @@ def stream_ollama(
         out_q.put("\n[Error] No model specified\n")
         out_q.put(None)
         return
+    _track_model(model)
 
     if stop_event and stop_event.is_set():
         out_q.put(None)
@@ -150,6 +185,11 @@ def warm_up_model(model: str | None = None) -> None:
     model = MODEL if model is None else model
     if not model:
         return
+    with _MODEL_STATE_LOCK:
+        if model in _WARMED_MODELS:
+            return
+        _WARMED_MODELS.add(model)
+        _TOUCHED_MODELS.add(model)
 
     def _warm() -> None:
         try:
@@ -172,3 +212,63 @@ def warm_up_model(model: str | None = None) -> None:
             pass
 
     threading.Thread(target=_warm, daemon=True).start()
+
+
+def unload_model(model: str) -> bool:
+    runtime = SettingsStore().get_runtime_settings()
+    cleaned = (model or "").strip()
+    if not cleaned:
+        return False
+    try:
+        requests.post(
+            runtime.ollama_chat_url,
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": cleaned,
+                "messages": [],
+                "keep_alive": 0,
+                "stream": False,
+            },
+            timeout=15,
+        ).raise_for_status()
+    except Exception:
+        return False
+    with _MODEL_STATE_LOCK:
+        _WARMED_MODELS.discard(cleaned)
+        _TOUCHED_MODELS.discard(cleaned)
+    return True
+
+
+def unload_tracked_models() -> list[str]:
+    with _MODEL_STATE_LOCK:
+        models = sorted(_TOUCHED_MODELS)
+    unloaded: list[str] = []
+    for model in models:
+        if unload_model(model):
+            unloaded.append(model)
+    return unloaded
+
+
+def stop_local_ollama_server() -> tuple[str, list[str]]:
+    process = _running_local_server_process()
+    if process is not None:
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            try:
+                process.kill()
+                process.wait(timeout=2)
+            except Exception:
+                return "failed", []
+        with _LOCAL_SERVER_LOCK:
+            global _LOCAL_SERVER_PROCESS
+            _LOCAL_SERVER_PROCESS = None
+        with _MODEL_STATE_LOCK:
+            _WARMED_MODELS.clear()
+            _TOUCHED_MODELS.clear()
+        return "stopped", []
+    unloaded = unload_tracked_models()
+    if unloaded:
+        return "released", unloaded
+    return "idle", []
