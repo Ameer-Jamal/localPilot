@@ -4,6 +4,8 @@ import tempfile
 import types
 from pathlib import Path
 
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 
 def load_main(monkeypatch):
     sys.modules.pop("main", None)
@@ -93,3 +95,73 @@ def test_get_selection_uses_line_column(monkeypatch):
         )
         payload = main.get_selection(args)
     assert payload.code == "ine1\nli"
+
+
+def test_get_selection_defaults_to_blank_new_chat_without_selection(monkeypatch):
+    main = load_main(monkeypatch)
+    monkeypatch.setattr(main, "read_stdin_if_available", lambda: None)
+    args = main.parse_args.__globals__["argparse"].Namespace(
+        file=None,
+        filepath=None,
+        selection=None,
+        sel_start=None,
+        sel_end=None,
+        sel_start_line=None,
+        sel_start_col=None,
+        sel_end_line=None,
+        sel_end_col=None,
+    )
+    payload = main.get_selection(args)
+    assert payload.code == ""
+    assert payload.display_name == "New Chat"
+    assert payload.file_path == ""
+
+
+def test_get_selection_uses_stdin_only_when_available(monkeypatch):
+    main = load_main(monkeypatch)
+    monkeypatch.setattr(main, "read_stdin_if_available", lambda: "from stdin")
+    args = main.parse_args.__globals__["argparse"].Namespace(
+        file=None,
+        filepath=None,
+        selection=None,
+        sel_start=None,
+        sel_end=None,
+        sel_start_line=None,
+        sel_start_col=None,
+        sel_end_line=None,
+        sel_end_col=None,
+    )
+    payload = main.get_selection(args)
+    assert payload.code == "from stdin"
+    assert payload.display_name == "New Chat"
+
+
+def test_should_handoff_to_existing_instance_for_file_or_selection(monkeypatch):
+    main = load_main(monkeypatch)
+    args = main.parse_args.__globals__["argparse"].Namespace(new_instance=False)
+    assert main.should_handoff_to_existing_instance(
+        args,
+        main.LaunchPayload("print('x')", "demo.py", "/tmp/demo.py"),
+    )
+    assert main.should_handoff_to_existing_instance(
+        args,
+        main.LaunchPayload("", "demo.py", "/tmp/demo.py"),
+    )
+
+
+def test_should_not_handoff_for_plain_standalone_launch(monkeypatch):
+    main = load_main(monkeypatch)
+    args = main.parse_args.__globals__["argparse"].Namespace(new_instance=False)
+    assert not main.should_handoff_to_existing_instance(
+        args,
+        main.LaunchPayload("", "New Chat", ""),
+    )
+
+
+def test_should_not_handoff_when_new_instance_requested(monkeypatch):
+    main = load_main(monkeypatch)
+    args = main.parse_args.__globals__["argparse"].Namespace(new_instance=True)
+    assert not main.should_handoff_to_existing_instance(
+        args,
+        main.LaunchPayload("print('x')", "demo.py", "/tmp/demo.py"),
+    )

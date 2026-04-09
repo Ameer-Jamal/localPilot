@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QTimer, QSettings, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QToolButton, QLabel, QMessageBox, QTabBar, QSplitter
+    QToolButton, QLabel, QMessageBox, QTabBar, QSplitter, QPushButton, QDialog
 )
 
 from config import APP_AUTHORLINE, APP_NAME, APP_ORG, APP_WINDOW_TITLE
@@ -15,8 +15,17 @@ from history_store import HistoryStore
 from ollama_client import unload_tracked_models
 from settings_store import SettingsStore
 from ui.history_panel import HistoryPanel
+from ui.settings_dialog import SettingsDialog
 from ui.session_widget import SessionWidget
-from ui.theme import APP_WINDOW_STYLE, EMPTY_STATE_STYLE, PIN_BUTTON_STYLE, SUBTLE_BUTTON_STYLE
+from ui.theme import (
+    ACCENT_BUTTON_STYLE,
+    APP_WINDOW_STYLE,
+    EMPTY_STATE_STYLE,
+    HISTORY_REVEAL_BUTTON_STYLE,
+    PIN_BUTTON_STYLE,
+    PRIMARY_BUTTON_STYLE,
+    SUBTLE_BUTTON_STYLE,
+)
 
 SOCKET_NAME = "LocalPilot"
 
@@ -114,16 +123,34 @@ class MainWindow(QMainWindow):
         self._history_btn.setStyleSheet(SUBTLE_BUTTON_STYLE.replace("QPushButton", "QToolButton"))
         self._history_btn.toggled.connect(self._toggle_history_panel)
 
+        self._settings_btn = QToolButton(header)
+        self._settings_btn.setText("Settings")
+        self._settings_btn.setCursor(Qt.PointingHandCursor)
+        self._settings_btn.setToolTip("Open LocalPilot settings")
+        self._settings_btn.setStyleSheet(SUBTLE_BUTTON_STYLE.replace("QPushButton", "QToolButton"))
+        self._settings_btn.clicked.connect(self._open_settings_dialog)
+
         h.addWidget(self._pin_btn, 0, Qt.AlignLeft)
         h.addWidget(self._pin_label, 0, Qt.AlignLeft)
         h.addSpacing(10)
         h.addWidget(self._brand_label, 0, Qt.AlignLeft)
         h.addStretch(1)
+        h.addWidget(self._settings_btn, 0, Qt.AlignRight)
         h.addWidget(self._history_btn, 0, Qt.AlignRight)
 
         v.addWidget(header, 0)
         v.addWidget(self._splitter, 1)
         self.setCentralWidget(container)
+
+        self._history_reveal_btn = QToolButton(container)
+        self._history_reveal_btn.setText("›")
+        self._history_reveal_btn.setCursor(Qt.PointingHandCursor)
+        self._history_reveal_btn.setToolTip("Show history panel")
+        self._history_reveal_btn.setFixedSize(30, 46)
+        self._history_reveal_btn.setStyleSheet(HISTORY_REVEAL_BUTTON_STYLE)
+        self._history_reveal_btn.clicked.connect(lambda: self._history_btn.setChecked(True))
+        self._history_reveal_btn.hide()
+        self._history_reveal_btn.raise_()
 
         self._server: QLocalServer | None = None
 
@@ -146,6 +173,7 @@ class MainWindow(QMainWindow):
         self._history_btn.setChecked(show_history)
         self._history_btn.blockSignals(False)
         self._toggle_history_panel(show_history)
+        self._position_history_reveal()
 
     def _restore_open_sessions(self) -> bool:
         restored_any = False
@@ -261,23 +289,53 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         card = QWidget(wrap)
+        card.setProperty("role", "emptyCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(34, 34, 34, 34)
+        card_layout.setSpacing(14)
+
+        eyebrow = QLabel(APP_AUTHORLINE, card)
+        eyebrow.setProperty("role", "emptyEyebrow")
+        eyebrow.setAlignment(Qt.AlignCenter)
 
         title = QLabel("Start a new chat", card)
         title.setProperty("role", "emptyTitle")
         title.setAlignment(Qt.AlignCenter)
 
-        body = QLabel("Click the + tab to open a blank conversation.", card)
+        body = QLabel(
+            "Open a blank chat, review saved conversations, or adjust LocalPilot settings before you begin.",
+            card,
+        )
         body.setProperty("role", "emptyBody")
         body.setWordWrap(True)
         body.setAlignment(Qt.AlignCenter)
-        body.setFixedWidth(360)
+        body.setFixedWidth(460)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        actions.setContentsMargins(0, 8, 0, 0)
+
+        new_chat_btn = QPushButton("New Chat", card)
+        new_chat_btn.setStyleSheet(ACCENT_BUTTON_STYLE)
+        new_chat_btn.clicked.connect(self._open_empty_tab)
+
+        settings_btn = QPushButton("Settings", card)
+        settings_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        settings_btn.clicked.connect(self._open_settings_dialog)
+
+        history_btn = QPushButton("Show History", card)
+        history_btn.setStyleSheet(SUBTLE_BUTTON_STYLE)
+        history_btn.clicked.connect(lambda: self._history_btn.setChecked(True))
+
+        actions.addWidget(new_chat_btn)
+        actions.addWidget(settings_btn)
+        actions.addWidget(history_btn)
 
         layout.addStretch(1)
+        card_layout.addWidget(eyebrow, 0, Qt.AlignCenter)
         card_layout.addWidget(title, 0, Qt.AlignCenter)
         card_layout.addWidget(body, 0, Qt.AlignCenter)
+        card_layout.addLayout(actions)
         layout.addWidget(card, 0, Qt.AlignCenter)
         layout.addStretch(1)
         return wrap
@@ -306,9 +364,11 @@ class MainWindow(QMainWindow):
             self._open_empty_tab()
 
     def _reload_session_settings(self):
+        self._reload_all_session_settings(origin=self.sender())
+
+    def _reload_all_session_settings(self, origin=None):
         self._settings_store = SettingsStore(self._settings)
         self._apply_history_retention()
-        origin = self.sender()
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
             if widget is origin:
@@ -329,6 +389,36 @@ class MainWindow(QMainWindow):
                 widget.reload_settings()
         self._refresh_history_panel()
 
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(
+            runtime=self._settings_store.get_runtime_settings(),
+            quick_prompts=self._settings_store.get_quick_prompts(),
+            confirm_close_tabs=self._settings_store.get_confirm_before_closing_tabs(),
+            history=self._settings_store.get_history_settings(),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self._settings_store.save_runtime_settings(dialog.get_runtime_settings())
+        self._settings_store.save_quick_prompts(dialog.get_quick_prompts())
+        self._settings_store.set_confirm_before_closing_tabs(dialog.get_confirm_close_tabs())
+        self._settings_store.save_history_settings(dialog.get_history_settings())
+        if dialog.should_clear_history():
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Warning)
+            box.setWindowTitle("Clear Saved History")
+            box.setText("Clear all saved chat history?")
+            box.setInformativeText("This permanently deletes every saved chat. Open tabs will remain visible until "
+                                   "you close them.")
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.No)
+            box.button(QMessageBox.Yes).setText("Clear History")
+            box.button(QMessageBox.No).setText("Cancel")
+            if box.exec() == QMessageBox.Yes:
+                self.history_store.clear_all_history()
+                self._on_history_cleared()
+        self._reload_all_session_settings()
+
     def _find_open_tab_by_session_id(self, session_id: int) -> int:
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
@@ -344,9 +434,20 @@ class MainWindow(QMainWindow):
             self._splitter.setSizes([360, max(660, self.width() - 360)])
         else:
             self._splitter.setSizes([0, 1])
+        self._history_reveal_btn.setVisible(not visible)
+        self._position_history_reveal()
 
     def _hide_history_panel(self):
         self._history_btn.setChecked(False)
+
+    def _position_history_reveal(self):
+        if not hasattr(self, "_history_reveal_btn"):
+            return
+        header = self.centralWidget().findChild(QWidget, "windowHeader")
+        header_height = header.height() if header is not None else 56
+        y = header_height + 18
+        self._history_reveal_btn.move(10, y)
+        self._history_reveal_btn.raise_()
 
     def _refresh_history_panel(self):
         self._history_panel.set_sessions(self.history_store.load_recent_sessions(limit=250))
@@ -477,3 +578,7 @@ class MainWindow(QMainWindow):
             self.history_store.close()
         finally:
             super().closeEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_history_reveal()

@@ -171,15 +171,52 @@ QToolButton:checked:hover {
 }
 """
 
+HISTORY_REVEAL_BUTTON_STYLE = """
+QToolButton {
+    background: rgba(32, 38, 45, 0.92);
+    color: #c5d2de;
+    border: 1px solid #313b45;
+    border-radius: 12px;
+    padding: 0;
+    font-size: 18px;
+    font-weight: 700;
+}
+QToolButton:hover {
+    background: rgba(40, 48, 57, 0.98);
+    color: #eef2f6;
+    border-color: #425161;
+}
+QToolButton:pressed {
+    background: rgba(29, 35, 41, 0.98);
+}
+"""
+
 EMPTY_STATE_STYLE = """
+QWidget#emptyState QWidget[role="emptyCard"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #20262d, stop:1 #1b2128);
+    border: 1px solid #2f3944;
+    border-radius: 22px;
+}
+QWidget#emptyState QLabel[role="emptyEyebrow"] {
+    color: #8ca1b5;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
 QWidget#emptyState QLabel[role="emptyTitle"] {
     color: #eef2f6;
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 700;
 }
 QWidget#emptyState QLabel[role="emptyBody"] {
     color: #8ea0b5;
     font-size: 15px;
+    qproperty-alignment: AlignCenter;
+}
+QWidget#emptyState QLabel[role="emptyMeta"] {
+    color: #9fb0c2;
+    font-size: 13px;
     qproperty-alignment: AlignCenter;
 }
 """

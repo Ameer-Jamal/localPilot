@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import select
+import stat
 import sys
 from dataclasses import dataclass
 
@@ -65,12 +67,41 @@ def slice_by_lc(text: str, s_line: int, s_col: int, e_line: int, e_col: int) -> 
     return text[s:e]
 
 
+def read_stdin_if_available() -> str | None:
+    stream = sys.stdin
+    if stream is None or stream.closed or stream.isatty():
+        return None
+    try:
+        fd = stream.fileno()
+        mode = os.fstat(fd).st_mode
+    except (AttributeError, OSError, ValueError):
+        return None
+
+    # Regular redirected files are safe to read immediately.
+    if stat.S_ISREG(mode):
+        return stream.read()
+
+    # Pipes and sockets should only be read when data is already available,
+    # otherwise IDE consoles can block forever on startup.
+    if stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode):
+        try:
+            ready, _, _ = select.select([stream], [], [], 0)
+        except (OSError, ValueError):
+            return None
+        if ready:
+            return stream.read()
+        return None
+
+    return None
+
+
 # -------- argparse + selection resolution --------
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--file")  # display name
     p.add_argument("--filepath")  # absolute path
+    p.add_argument("--new-instance", action="store_true")
 
     # absolute offsets (accept strings; convert later to avoid argparse aborts)
     p.add_argument("--sel-start", nargs="?")
@@ -90,7 +121,7 @@ def parse_args():
 def get_selection(args) -> LaunchPayload:
     """Return the selection payload resolved from CLI arguments."""
     file_path = args.filepath or ""
-    title = args.file or (os.path.basename(file_path) if file_path else "selection")
+    title = args.file or (os.path.basename(file_path) if file_path else "New Chat")
 
     # 1) explicit selection text
     if args.selection and "$" not in args.selection:
@@ -117,11 +148,20 @@ def get_selection(args) -> LaunchPayload:
     if file_text and None not in (sl, sc, el, ec):
         return LaunchPayload(slice_by_lc(file_text, sl, sc, el, ec), title, file_path)
 
-    # 4) stdin
-    if not sys.stdin.isatty():
-        return LaunchPayload(sys.stdin.read(), title, file_path)
+    # 4) stdin, but only if data is actually available
+    stdin_text = read_stdin_if_available()
+    if stdin_text is not None:
+        return LaunchPayload(stdin_text, title, file_path)
 
     return LaunchPayload("", title, file_path)
+
+
+def should_handoff_to_existing_instance(args, payload: LaunchPayload) -> bool:
+    if getattr(args, "new_instance", False):
+        return False
+    has_selection_payload = bool((payload.code or "").strip())
+    has_file_context = bool((payload.file_path or "").strip())
+    return has_selection_payload or has_file_context
 
 
 # -------- entrypoint --------
@@ -131,7 +171,11 @@ def main():
     payload = get_selection(args)
 
     # If an instance is running, hand off via IPC and exit.
-    if send_open_session(payload.code, payload.display_name, payload.file_path):
+    if should_handoff_to_existing_instance(args, payload) and send_open_session(
+        payload.code,
+        payload.display_name,
+        payload.file_path,
+    ):
         return
 
     # Otherwise, start the UI and begin listening for future selections.
