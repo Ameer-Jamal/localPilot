@@ -170,3 +170,120 @@ QToolButton:checked:hover {
     background: #38a192;
 }
 """
+
+EMPTY_STATE_STYLE = """
+QWidget#emptyState QLabel[role="emptyTitle"] {
+    color: #eef2f6;
+    font-size: 28px;
+    font-weight: 700;
+}
+QWidget#emptyState QLabel[role="emptyBody"] {
+    color: #8ea0b5;
+    font-size: 15px;
+    qproperty-alignment: AlignCenter;
+}
+"""
+
+HISTORY_PANEL_STYLE = """
+QWidget#historyPanel {
+    background: #151a1f;
+    border-right: 1px solid #2a333d;
+}
+QLabel[role="eyebrow"] {
+    color: #8ca1b5;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+QLabel[role="title"] {
+    color: #f3f6f9;
+    font-size: 24px;
+    font-weight: 700;
+}
+QLabel[role="body"] {
+    color: #99aaba;
+    font-size: 13px;
+}
+QToolButton[role="collapse"] {
+    background: transparent;
+    color: #cbd7e3;
+    border: 1px solid #2f3944;
+    border-radius: 10px;
+    padding: 0;
+    font-size: 18px;
+    font-weight: 700;
+}
+QToolButton[role="collapse"]:hover {
+    background: #202a33;
+    border-color: #425161;
+}
+QListWidget {
+    background: transparent;
+    color: #eef2f6;
+    border: none;
+    outline: none;
+    padding: 0;
+}
+QListWidget::item {
+    border: none;
+    margin: 0 0 8px 0;
+}
+QWidget#historyRow {
+    background: #1b222a;
+    border: 1px solid #2a333d;
+    border-radius: 14px;
+}
+QWidget#historyRow[selected="true"] {
+    background: #213746;
+    border-color: #2f8f81;
+}
+QWidget#historyRow QLabel[role="rowTitle"] {
+    color: #eef2f6;
+    font-size: 14px;
+    font-weight: 700;
+}
+QWidget#historyRow QLabel[role="rowPreview"] {
+    color: #dce5ee;
+    font-size: 13px;
+}
+QWidget#historyRow QLabel[role="rowMeta"] {
+    color: #90a3b7;
+    font-size: 12px;
+}
+QWidget#historyRow QLabel[role="badgeOpen"] {
+    background: #1e4c45;
+    color: #c7f2eb;
+    border: 1px solid #2f8f81;
+    border-radius: 9px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QWidget#historyRow QLabel[role="badgeClosed"] {
+    background: #222931;
+    color: #a8b7c8;
+    border: 1px solid #33404c;
+    border-radius: 9px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QPushButton[role="rowAction"] {
+    background: transparent;
+    color: #b8c8d8;
+    border: 1px solid #3a4652;
+    border-radius: 9px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QPushButton[role="rowAction"]:hover {
+    background: #222c35;
+    color: #eef2f6;
+    border-color: #4b5d6e;
+}
+QPushButton[role="rowAction"]:pressed {
+    background: #202a33;
+}
+"""

@@ -94,9 +94,34 @@ def test_settings_store_defaults_when_empty(monkeypatch):
     store = module.SettingsStore(FakeSettings())
     prompts = store.get_quick_prompts()
     assert prompts == module.DEFAULT_QUICK_PROMPTS
+    assert store.get_confirm_before_closing_tabs() is True
 
 
 def test_fetch_ollama_models_prefers_env(monkeypatch):
     module = load_settings_store(monkeypatch)
     monkeypatch.setenv("MODEL_LIST", "a, b")
     assert module.fetch_ollama_models() == ["a", "b"]
+
+
+def test_settings_store_round_trips_close_confirmation(monkeypatch):
+    module = load_settings_store(monkeypatch)
+    fake = FakeSettings()
+    store = module.SettingsStore(fake)
+    store.set_confirm_before_closing_tabs(False)
+    assert store.get_confirm_before_closing_tabs() is False
+
+
+def test_settings_store_round_trips_history_settings(monkeypatch):
+    module = load_settings_store(monkeypatch)
+    fake = FakeSettings()
+    store = module.SettingsStore(fake)
+    history = module.HistorySettings(
+        keep_forever=False,
+        delete_closed_after_days=14,
+        max_sessions=123,
+    )
+    store.save_history_settings(history)
+    loaded = store.get_history_settings()
+    assert loaded.keep_forever is False
+    assert loaded.delete_closed_after_days == 14
+    assert loaded.max_sessions == 123

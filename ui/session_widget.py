@@ -18,9 +18,15 @@ from PySide6.QtWidgets import (
     QStatusBar,
     QComboBox,
     QDialog,
+    QMessageBox,
 )
 from markdown_it import MarkdownIt
 
+from chat_logic import (
+    has_meaningful_messages,
+    should_finalize_pending_assistant,
+    should_persist_initial_session,
+)
 from config import APP_NAME, APP_ORG, MODEL
 from history_store import HistoryStore
 from ollama_client import warm_up_model
@@ -36,6 +42,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.theme import ACCENT_BUTTON_STYLE, PRIMARY_BUTTON_STYLE, SUBTLE_BUTTON_STYLE
 from utils import lang_hint
 from workers.chat_worker import ChatWorker
+from workers.title_worker import TitleWorker
 
 md = MarkdownIt()
 LEGACY_SETTINGS_ORG = "AskAboutSelection"
@@ -45,6 +52,9 @@ class SessionWidget(QWidget):
     """One chat session pinned to a specific code selection."""
     asked = Signal()  # emitted whenever a question is sent (used to bring window to front)
     settingsChanged = Signal()
+    historyCleared = Signal()
+    historyUpdated = Signal()
+    titleChanged = Signal(int, str)
 
     def __init__(
             self,
@@ -55,20 +65,24 @@ class SessionWidget(QWidget):
             history_store: HistoryStore,
             session_id: int | None = None,
             persisted_model: str = "",
+            session_title: str = "",
     ):
         super().__init__()
         self.code = code
         self.lang = lang_hint(file_name)
         self.file_name = file_name
         self.file_path = file_path
+        self.title = (session_title or file_name or "New Chat").strip() or "Untitled Chat"
         self.history_store = history_store
         self.session_id = session_id
         self._preferred_model = persisted_model or MODEL
         self._assistant_persisted = False
         self._generation_stopped = False
+        self._allow_auto_title = session_id is None
         self._settings_store = SettingsStore()
         self._runtime_settings = self._settings_store.get_runtime_settings()
         self._quick_prompts = self._settings_store.get_quick_prompts()
+        self._title_worker: TitleWorker | None = None
 
         # Conversation state
         if session_id is not None:
@@ -180,7 +194,8 @@ class SessionWidget(QWidget):
         self._start_ts = 0.0
         self._chars = 0
 
-        self._ensure_session()
+        if should_persist_initial_session(self.code, self.history):
+            self._ensure_session()
         self._flush_render(force=True)
 
     def _get_current_available_models(self) -> list[str]:
@@ -289,12 +304,29 @@ class SessionWidget(QWidget):
         dialog = SettingsDialog(
             runtime=self._runtime_settings,
             quick_prompts=self._quick_prompts,
+            confirm_close_tabs=self._settings_store.get_confirm_before_closing_tabs(),
+            history=self._settings_store.get_history_settings(),
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
             return
         self._settings_store.save_runtime_settings(dialog.get_runtime_settings())
         self._settings_store.save_quick_prompts(dialog.get_quick_prompts())
+        self._settings_store.set_confirm_before_closing_tabs(dialog.get_confirm_close_tabs())
+        self._settings_store.save_history_settings(dialog.get_history_settings())
+        if dialog.should_clear_history():
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Warning)
+            box.setWindowTitle("Clear Saved History")
+            box.setText("Clear all saved chat history?")
+            box.setInformativeText("This permanently deletes every saved chat. Open tabs will remain visible until you close them.")
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.No)
+            box.button(QMessageBox.Yes).setText("Clear History")
+            box.button(QMessageBox.No).setText("Cancel")
+            if box.exec() == QMessageBox.Yes:
+                self.history_store.clear_all_history()
+                self.historyCleared.emit()
         self.reload_settings()
         self.settingsChanged.emit()
 
@@ -346,6 +378,7 @@ class SessionWidget(QWidget):
         if self.session_id is not None:
             return
         self.session_id = self.history_store.create_session(
+            title=self.title,
             file_name=self.file_name,
             file_path=self.file_path,
             code=self.code,
@@ -358,10 +391,55 @@ class SessionWidget(QWidget):
         model = self.model_combo.currentText().strip()
         return "" if not model or model == "No Ollama Models Found" else model
 
+    def display_title(self) -> str:
+        return self.title or self.file_name or "Untitled Chat"
+
+    def _set_title(self, title: str) -> None:
+        cleaned = title.strip()
+        if not cleaned or cleaned == self.title:
+            return
+        self.title = cleaned
+        if self.session_id is not None:
+            self.history_store.update_session_title(self.session_id, cleaned)
+            self.historyUpdated.emit()
+            self.titleChanged.emit(self.session_id, cleaned)
+
+    def _maybe_generate_title(self) -> None:
+        if not self._allow_auto_title:
+            return
+        if self._title_worker is not None and self._title_worker.isRunning():
+            return
+        model = self._selected_model()
+        if not model:
+            return
+        self._title_worker = TitleWorker(
+            list(self.history),
+            model=model,
+            file_name=self.file_name,
+            file_path=self.file_path,
+        )
+        self._title_worker.done.connect(self._on_title_ready)
+        self._title_worker.start()
+
+    def _on_title_ready(self, title: str) -> None:
+        worker = self._title_worker
+        self._title_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        cleaned = title.strip()
+        if cleaned:
+            self._set_title(cleaned)
+            self._allow_auto_title = False
+
     def _user_say(self, text: str):
         self.history.append({"role": "user", "content": text})
-        if self.session_id is not None:
+        already_persisted = self.session_id is not None
+        self._ensure_session()
+        if already_persisted and self.session_id is not None:
             self.history_store.append_message(self.session_id, "user", text)
+            self.historyUpdated.emit()
+        elif self.session_id is not None:
+            self.historyUpdated.emit()
         self._append_role_block("user", text)
         self._flush_render(True)
 
@@ -426,8 +504,14 @@ class SessionWidget(QWidget):
             return
         self._assistant_persisted = True
         self.history.append({"role": "assistant", "content": self._assistant_md})
-        if self.session_id is not None:
+        already_persisted = self.session_id is not None
+        self._ensure_session()
+        if already_persisted and self.session_id is not None:
             self.history_store.append_message(self.session_id, "assistant", self._assistant_md)
+            self.historyUpdated.emit()
+        elif self.session_id is not None:
+            self.historyUpdated.emit()
+        self._maybe_generate_title()
 
     # rendering
     def _append_code_context_block(self):
@@ -500,8 +584,24 @@ class SessionWidget(QWidget):
         return self._worker is not None and self._worker.isRunning()
 
     def close_session(self):
+        if should_finalize_pending_assistant(self._assistant_md, self._assistant_persisted):
+            self._render_timer.stop()
+            self._flush_render(True)
+            self._finalize_assistant_message()
         if self.session_id is not None:
-            self.history_store.mark_session_closed(self.session_id)
+            if has_meaningful_messages(self.history):
+                self.history_store.mark_session_closed(self.session_id)
+            else:
+                self.history_store.delete_session(self.session_id)
+                self.session_id = None
+            self.historyUpdated.emit()
+
+    def reset_persistence(self):
+        self.session_id = None
+        self._allow_auto_title = False
+        if should_persist_initial_session(self.code, self.history):
+            self._ensure_session()
+            self.historyUpdated.emit()
 
     def matches_context(self, code: str, file_name: str, file_path: str) -> bool:
         return self.code == code and self.file_name == file_name and self.file_path == file_path

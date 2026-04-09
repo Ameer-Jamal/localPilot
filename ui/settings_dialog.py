@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -24,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from config import APP_AUTHOR_NAME, APP_DISPLAY_NAME
-from settings_store import DEFAULT_QUICK_PROMPTS, RuntimeSettings
+from settings_store import DEFAULT_QUICK_PROMPTS, HistorySettings, RuntimeSettings
 
 
 class SettingsDialog(QDialog):
@@ -32,6 +31,8 @@ class SettingsDialog(QDialog):
             self,
             runtime: RuntimeSettings,
             quick_prompts: OrderedDict[str, str],
+            confirm_close_tabs: bool,
+            history: HistorySettings,
             parent=None,
     ):
         super().__init__(parent)
@@ -39,6 +40,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.resize(940, 720)
         self.setMinimumSize(860, 640)
+        self._clear_history_requested = False
         self.setStyleSheet(
             """
             QDialog#settingsDialog {
@@ -144,6 +146,15 @@ class SettingsDialog(QDialog):
                 background: #38a192;
                 border-color: #38a192;
             }
+            QPushButton[variant="danger"] {
+                background: #4c2b31;
+                border-color: #7a3b46;
+                color: #ffdfe3;
+            }
+            QPushButton[variant="danger"]:hover {
+                background: #60343b;
+                border-color: #8d4653;
+            }
             QHeaderView::section {
                 background: #242b33;
                 color: #c9d3de;
@@ -161,8 +172,9 @@ class SettingsDialog(QDialog):
         root.addWidget(self._build_header())
 
         self.tabs = QTabWidget(self)
-        self.tabs.addTab(self._build_runtime_tab(runtime), "Runtime")
+        self.tabs.addTab(self._build_runtime_tab(runtime, confirm_close_tabs), "Runtime")
         self.tabs.addTab(self._build_quick_prompts_tab(quick_prompts), "Quick Prompts")
+        self.tabs.addTab(self._build_history_tab(history), "History")
         root.addWidget(self.tabs, 1)
 
         actions = QHBoxLayout()
@@ -210,7 +222,7 @@ class SettingsDialog(QDialog):
         scroll.setWidget(content)
         return scroll
 
-    def _build_runtime_tab(self, runtime: RuntimeSettings) -> QWidget:
+    def _build_runtime_tab(self, runtime: RuntimeSettings, confirm_close_tabs: bool) -> QWidget:
         content = QWidget(self)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 8, 0, 0)
@@ -248,6 +260,7 @@ class SettingsDialog(QDialog):
                 rows_builder=self._build_server_rows,
             )
         )
+        layout.addWidget(self._build_window_behavior_card(confirm_close_tabs))
         layout.addStretch(1)
         return self._build_scroll_tab(content)
 
@@ -262,18 +275,14 @@ class SettingsDialog(QDialog):
         body = QLabel(description, card)
         body.setWordWrap(True)
         body.setProperty("role", "section_body")
-
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(18)
-        form.setVerticalSpacing(12)
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignTop)
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(14)
 
         layout.addWidget(heading)
         layout.addWidget(body)
-        rows_builder(form, runtime, card)
-        layout.addLayout(form)
+        rows_builder(rows, runtime, card)
+        layout.addLayout(rows)
         return card
 
     def _make_form_label(self, title: str, description: str, parent: QWidget) -> QWidget:
@@ -290,110 +299,136 @@ class SettingsDialog(QDialog):
         layout.addWidget(detail_label)
         return wrap
 
-    def _build_connection_rows(self, form: QFormLayout, runtime: RuntimeSettings, parent: QWidget) -> None:
+    def _add_setting_row(self, rows, label_widget: QWidget, control: QWidget, parent: QWidget) -> None:
+        row = QWidget(parent)
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(label_widget)
+        layout.addWidget(control)
+        rows.addWidget(row)
+
+    def _build_connection_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
         self.base_url_edit = QLineEdit(runtime.ollama_base_url, parent)
-        self.base_url_edit.setMinimumWidth(360)
         self.base_url_edit.setPlaceholderText("http://localhost:11434/api")
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label("Ollama API base URL", "Example: http://localhost:11434/api", parent),
             self.base_url_edit,
+            parent,
         )
 
         self.pull_model_edit = QLineEdit(runtime.default_pull_model, parent)
         self.pull_model_edit.setPlaceholderText("qwen2.5-coder:7b")
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Default model to install",
                 "Used by the “Install Model” button when Ollama is running but no model is available.",
                 parent,
             ),
             self.pull_model_edit,
+            parent,
         )
 
-    def _build_generation_rows(self, form: QFormLayout, runtime: RuntimeSettings, parent: QWidget) -> None:
+    def _build_generation_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
         self.temperature_spin = QDoubleSpinBox(parent)
         self.temperature_spin.setDecimals(2)
         self.temperature_spin.setRange(0.0, 4.0)
         self.temperature_spin.setSingleStep(0.05)
         self.temperature_spin.setValue(runtime.temperature)
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Creativity",
                 "Lower values are steadier and more deterministic. Higher values are more exploratory.",
                 parent,
             ),
             self.temperature_spin,
+            parent,
         )
 
         self.num_ctx_spin = QSpinBox(parent)
         self.num_ctx_spin.setRange(1024, 1_000_000)
         self.num_ctx_spin.setSingleStep(1024)
         self.num_ctx_spin.setValue(runtime.num_ctx)
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Context window",
                 "How much code and conversation history LocalPilot asks Ollama to keep in view.",
                 parent,
             ),
             self.num_ctx_spin,
+            parent,
         )
 
         self.keep_alive_edit = QLineEdit(runtime.keep_alive, parent)
         self.keep_alive_edit.setPlaceholderText("10m")
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Keep models warm for",
                 "Examples: 10m, 1h, 30s. Longer values reduce cold starts at the cost of memory use.",
                 parent,
             ),
             self.keep_alive_edit,
+            parent,
         )
 
-    def _build_server_rows(self, form: QFormLayout, runtime: RuntimeSettings, parent: QWidget) -> None:
+    def _build_server_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
         self.num_parallel_spin = QSpinBox(parent)
         self.num_parallel_spin.setRange(1, 64)
         self.num_parallel_spin.setValue(runtime.serve_num_parallel)
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Parallel requests",
                 "How many requests the local Ollama server should try to serve at once when LocalPilot starts it.",
                 parent,
             ),
             self.num_parallel_spin,
+            parent,
         )
 
         self.max_loaded_spin = QSpinBox(parent)
         self.max_loaded_spin.setRange(1, 64)
         self.max_loaded_spin.setValue(runtime.serve_max_loaded_models)
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "Models kept loaded",
                 "Caps how many models Ollama should keep resident in memory when LocalPilot starts it.",
                 parent,
             ),
             self.max_loaded_spin,
+            parent,
         )
 
         self.flash_attention_check = QCheckBox("Enable Flash Attention when supported", parent)
         self.flash_attention_check.setChecked(runtime.serve_flash_attention)
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "GPU optimization",
                 "Useful on supported hardware. Leave enabled unless you know it causes issues on your machine.",
                 parent,
             ),
             self.flash_attention_check,
+            parent,
         )
 
         self.kv_cache_edit = QLineEdit(runtime.serve_kv_cache_type, parent)
         self.kv_cache_edit.setPlaceholderText("q8_0")
-        form.addRow(
+        self._add_setting_row(
+            rows,
             self._make_form_label(
                 "KV cache format",
                 "Controls the cache representation used when LocalPilot launches Ollama locally.",
                 parent,
             ),
             self.kv_cache_edit,
+            parent,
         )
 
     def _build_quick_prompts_tab(self, quick_prompts: OrderedDict[str, str]) -> QWidget:
@@ -465,6 +500,144 @@ class SettingsDialog(QDialog):
         layout.addStretch(1)
         return self._build_scroll_tab(content)
 
+    def _build_window_behavior_card(self, confirm_close_tabs: bool) -> QWidget:
+        card = self._make_card()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+
+        title = QLabel("Window Behavior", card)
+        title.setProperty("role", "section_title")
+        body = QLabel(
+            "Choose how cautious LocalPilot should be when you close a chat tab.",
+            card,
+        )
+        body.setWordWrap(True)
+        body.setProperty("role", "section_body")
+
+        self.confirm_close_tabs_check = QCheckBox("Ask before closing a chat tab", card)
+        self.confirm_close_tabs_check.setChecked(confirm_close_tabs)
+
+        detail = QLabel(
+            "Turn this off if you prefer browser-style instant closes. Leave it on if you want a safety check before a tab disappears.",
+            card,
+        )
+        detail.setWordWrap(True)
+        detail.setProperty("role", "section_body")
+
+        layout.addWidget(title)
+        layout.addWidget(body)
+        layout.addWidget(self.confirm_close_tabs_check)
+        layout.addWidget(detail)
+        return card
+
+    def _build_history_tab(self, history: HistorySettings) -> QWidget:
+        content = QWidget(self)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(16)
+
+        intro = QLabel(
+            "History keeps your previous chats available to reopen later. You can keep everything forever or let LocalPilot trim old closed chats automatically.",
+            content,
+        )
+        intro.setWordWrap(True)
+        intro.setProperty("role", "body")
+        layout.addWidget(intro)
+
+        retention = self._make_card()
+        retention_layout = QVBoxLayout(retention)
+        retention_layout.setContentsMargins(18, 18, 18, 18)
+        retention_layout.setSpacing(14)
+
+        title = QLabel("Retention", retention)
+        title.setProperty("role", "section_title")
+        body = QLabel(
+            "Open chats are preserved. Automatic cleanup only targets closed chats.",
+            retention,
+        )
+        body.setWordWrap(True)
+        body.setProperty("role", "section_body")
+        retention_layout.addWidget(title)
+        retention_layout.addWidget(body)
+
+        self.keep_history_forever_check = QCheckBox("Keep history forever", retention)
+        self.keep_history_forever_check.setChecked(history.keep_forever)
+        self.keep_history_forever_check.toggled.connect(self._toggle_history_retention_controls)
+        retention_layout.addWidget(self.keep_history_forever_check)
+
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(14)
+
+        self.delete_closed_days_spin = QSpinBox(retention)
+        self.delete_closed_days_spin.setRange(1, 3650)
+        self.delete_closed_days_spin.setValue(history.delete_closed_after_days)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "Delete closed chats after",
+                "Older closed sessions beyond this age are removed during startup and after settings changes.",
+                retention,
+            ),
+            self.delete_closed_days_spin,
+            retention,
+        )
+
+        self.max_sessions_spin = QSpinBox(retention)
+        self.max_sessions_spin.setRange(1, 100000)
+        self.max_sessions_spin.setValue(history.max_sessions)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "Maximum saved chats",
+                "If history grows beyond this cap, LocalPilot trims the oldest closed chats first.",
+                retention,
+            ),
+            self.max_sessions_spin,
+            retention,
+        )
+        retention_layout.addLayout(rows)
+        layout.addWidget(retention)
+
+        actions = self._make_card()
+        actions_layout = QVBoxLayout(actions)
+        actions_layout.setContentsMargins(18, 18, 18, 18)
+        actions_layout.setSpacing(14)
+        actions_title = QLabel("Manual Cleanup", actions)
+        actions_title.setProperty("role", "section_title")
+        actions_body = QLabel(
+            "Use this when you want to wipe every saved chat and start fresh.",
+            actions,
+        )
+        actions_body.setWordWrap(True)
+        actions_body.setProperty("role", "section_body")
+        clear_button = QPushButton("Clear All Saved History", actions)
+        clear_button.setProperty("variant", "danger")
+        clear_button.clicked.connect(self._request_clear_history)
+        clear_button.style().unpolish(clear_button)
+        clear_button.style().polish(clear_button)
+        self.clear_history_status = QLabel("No destructive actions selected.", actions)
+        self.clear_history_status.setProperty("role", "section_body")
+
+        actions_layout.addWidget(actions_title)
+        actions_layout.addWidget(actions_body)
+        actions_layout.addWidget(clear_button, 0, Qt.AlignLeft)
+        actions_layout.addWidget(self.clear_history_status)
+        layout.addWidget(actions)
+        layout.addStretch(1)
+        self._toggle_history_retention_controls(history.keep_forever)
+        return self._build_scroll_tab(content)
+
+    def _toggle_history_retention_controls(self, checked: bool) -> None:
+        enabled = not checked
+        self.delete_closed_days_spin.setEnabled(enabled)
+        self.max_sessions_spin.setEnabled(enabled)
+
+    def _request_clear_history(self) -> None:
+        self._clear_history_requested = True
+        self.clear_history_status.setText("Clear-all requested. Save changes to apply it.")
+
     def _make_card(self) -> QFrame:
         card = QFrame(self)
         card.setProperty("card", "true")
@@ -514,3 +687,16 @@ class SettingsDialog(QDialog):
                 }
             )
         return prompts
+
+    def get_confirm_close_tabs(self) -> bool:
+        return self.confirm_close_tabs_check.isChecked()
+
+    def get_history_settings(self) -> HistorySettings:
+        return HistorySettings(
+            keep_forever=self.keep_history_forever_check.isChecked(),
+            delete_closed_after_days=self.delete_closed_days_spin.value(),
+            max_sessions=self.max_sessions_spin.value(),
+        )
+
+    def should_clear_history(self) -> bool:
+        return self._clear_history_requested

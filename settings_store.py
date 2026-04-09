@@ -62,6 +62,13 @@ class RuntimeSettings:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class HistorySettings:
+    keep_forever: bool
+    delete_closed_after_days: int
+    max_sessions: int
+
+
 def get_qsettings() -> QSettings:
     return QSettings(APP_ORG, APP_NAME)
 
@@ -181,6 +188,27 @@ class SettingsStore:
 
     def reset_quick_prompts(self) -> None:
         self.settings.remove("quick_prompts/items")
+
+    def get_confirm_before_closing_tabs(self) -> bool:
+        return _coerce_bool(self.settings.value("ui/confirm_close_tabs", True), True)
+
+    def set_confirm_before_closing_tabs(self, enabled: bool) -> None:
+        self.settings.setValue("ui/confirm_close_tabs", bool(enabled))
+
+    def get_history_settings(self) -> HistorySettings:
+        return HistorySettings(
+            keep_forever=_coerce_bool(self.settings.value("history/keep_forever", True), True),
+            delete_closed_after_days=max(
+                1,
+                _coerce_int(self.settings.value("history/delete_closed_after_days", 30), 30),
+            ),
+            max_sessions=max(1, _coerce_int(self.settings.value("history/max_sessions", 500), 500)),
+        )
+
+    def save_history_settings(self, history: HistorySettings) -> None:
+        self.settings.setValue("history/keep_forever", bool(history.keep_forever))
+        self.settings.setValue("history/delete_closed_after_days", int(history.delete_closed_after_days))
+        self.settings.setValue("history/max_sessions", int(history.max_sessions))
 
 
 def fetch_ollama_models(runtime: RuntimeSettings | None = None) -> list[str]:
