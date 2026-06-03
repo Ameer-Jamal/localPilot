@@ -26,6 +26,7 @@ def load_worker(monkeypatch):
     monkeypatch.setitem(sys.modules, 'PySide6.QtCore', qtcore)
     monkeypatch.setitem(sys.modules, 'requests', types.SimpleNamespace(post=lambda *a, **k: None))
     settings_mod = types.ModuleType('settings_store')
+    settings_mod.RuntimeSettings = object
     settings_mod.SettingsStore = lambda: types.SimpleNamespace(
         get_runtime_settings=lambda: types.SimpleNamespace(
             ollama_chat_url='http://localhost:11434/api/chat',
@@ -68,6 +69,7 @@ def load_worker_thread(monkeypatch, stream_impl):
     monkeypatch.setitem(sys.modules, 'PySide6.QtCore', qtcore)
     monkeypatch.setitem(sys.modules, 'requests', types.SimpleNamespace(post=lambda *a, **k: None))
     settings_mod = types.ModuleType('settings_store')
+    settings_mod.RuntimeSettings = object
     settings_mod.SettingsStore = lambda: types.SimpleNamespace(
         get_runtime_settings=lambda: types.SimpleNamespace(
             ollama_chat_url='http://localhost:11434/api/chat',
@@ -79,7 +81,7 @@ def load_worker_thread(monkeypatch, stream_impl):
     monkeypatch.setitem(sys.modules, 'settings_store', settings_mod)
     import workers.chat_worker as cw
     cw = importlib.reload(cw)
-    monkeypatch.setattr(cw, 'stream_ollama', stream_impl)
+    monkeypatch.setattr(cw, 'stream_model', stream_impl)
     return cw
 
 

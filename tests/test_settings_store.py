@@ -79,6 +79,11 @@ def test_settings_store_round_trips_runtime_and_prompts(monkeypatch):
         serve_max_loaded_models=3,
         serve_flash_attention=False,
         serve_kv_cache_type="f16",
+        bedrock_enabled=True,
+        bedrock_aws_profile="dev",
+        bedrock_aws_region="us-west-2",
+        bedrock_model_ids=("model-a", "model-b"),
+        bedrock_max_tokens=8192,
     )
     store.save_runtime_settings(runtime)
     store.save_quick_prompts([
@@ -93,6 +98,11 @@ def test_settings_store_round_trips_runtime_and_prompts(monkeypatch):
     assert loaded_runtime.keep_alive == "20m"
     assert loaded_runtime.default_pull_model == "llama3.1"
     assert loaded_runtime.serve_env["OLLAMA_FLASH_ATTENTION"] == "0"
+    assert loaded_runtime.bedrock_enabled is True
+    assert loaded_runtime.bedrock_aws_profile == "dev"
+    assert loaded_runtime.bedrock_aws_region == "us-west-2"
+    assert loaded_runtime.bedrock_model_ids == ("model-a", "model-b")
+    assert loaded_runtime.bedrock_max_tokens == 8192
     assert store.get_quick_prompts() == OrderedDict([
         ("Explain", "Explain it"),
         ("Fix", "Fix it"),
@@ -108,6 +118,14 @@ def test_settings_store_defaults_when_empty(monkeypatch):
     defaults = module.default_runtime_settings()
     runtime = store.get_runtime_settings()
     assert runtime == defaults
+    assert runtime.bedrock_enabled is False
+    assert runtime.bedrock_model_ids == tuple(module.DEFAULT_BEDROCK_MODEL_IDS)
+    assert runtime.bedrock_model_ids[0] == "global.anthropic.claude-sonnet-4-6"
+
+
+def test_normalize_bedrock_model_ids_dedupes_commas_and_lines(monkeypatch):
+    module = load_settings_store(monkeypatch)
+    assert module.normalize_bedrock_model_ids("a, b\na\n\nc") == ("a", "b", "c")
 
 
 def test_fetch_ollama_models_prefers_env(monkeypatch):

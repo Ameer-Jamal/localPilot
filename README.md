@@ -87,6 +87,7 @@ Runtime settings in the UI include:
 - context window
 - keep-alive duration
 - local Ollama launch defaults
+- optional AWS Bedrock profile, region, and model selection
 
 Quick prompts in the UI can be:
 
@@ -117,6 +118,56 @@ For advanced environment overrides:
 
 - `OLLAMA_URL` changes the Ollama API base URL
 - `MODEL_LIST` pins the visible model list
+
+## AWS Bedrock
+
+LocalPilot can also use AWS Bedrock models in the same model dropdown as Ollama. Bedrock is optional and disabled by default.
+
+Requirements:
+
+- `boto3` installed from `requirements.txt`
+- AWS CLI installed
+- an AWS profile with Bedrock access
+- if your profile uses AWS SSO, a valid SSO login session
+
+Typical AWS setup:
+
+```bash
+export AWS_PROFILE="your-profile"
+export AWS_REGION="us-east-1"
+aws sso login --profile "$AWS_PROFILE"
+```
+
+How to enable it in LocalPilot:
+
+1. Open `Settings`.
+2. In the `AWS Bedrock` section, enable Bedrock.
+3. Choose an AWS profile.
+4. Choose an AWS region.
+5. Click `AWS SSO Login` if the selected profile uses SSO.
+6. Click `Refresh Bedrock Models`.
+
+Model selection notes:
+
+- LocalPilot now filters the Bedrock list to active, chat-capable inference profiles.
+- Prefer current inference-profile IDs such as `global.anthropic.claude-sonnet-4-6`, `us.amazon.nova-pro-v1:0`, or the `us.meta.llama4-*` profiles.
+- Old or legacy raw foundation-model IDs may appear in AWS generally, but LocalPilot should avoid offering the ones that are known to fail with `Converse`.
+- Bedrock models are tinted differently in the main model dropdown so they are easy to distinguish from Ollama models.
+
+Common Bedrock issues:
+
+- **`ForbiddenException` / `GetRoleCredentials`**  
+  Your AWS profile is not logged in or does not have Bedrock access. Run:
+
+  ```bash
+  aws sso login --profile "$AWS_PROFILE"
+  ```
+
+- **`ValidationException` saying an inference profile is required**  
+  That model needs an inference profile ID instead of a raw foundation-model ID. Refresh the Bedrock list and pick one of the Bedrock entries offered by LocalPilot.
+
+- **`ResourceNotFoundException` for legacy or end-of-life models**  
+  The selected model is no longer usable for your account or region. Refresh the Bedrock list and choose a newer profile.
 
 ## Ollama notes
 

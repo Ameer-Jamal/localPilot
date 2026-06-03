@@ -25,6 +25,14 @@ DEFAULT_SERVE_NUM_PARALLEL = 2
 DEFAULT_SERVE_MAX_LOADED_MODELS = 2
 DEFAULT_SERVE_FLASH_ATTENTION = True
 DEFAULT_SERVE_KV_CACHE_TYPE = "q8_0"
+DEFAULT_BEDROCK_MODEL_IDS = [
+    "global.anthropic.claude-sonnet-4-6",
+    "us.amazon.nova-pro-v1:0",
+    "us.meta.llama4-maverick-17b-instruct-v1:0",
+    "us.meta.llama4-scout-17b-instruct-v1:0",
+    "us.deepseek.r1-v1:0",
+]
+DEFAULT_BEDROCK_MAX_TOKENS = 4096
 
 DEFAULT_QUICK_PROMPTS: "OrderedDict[str, str]" = OrderedDict(
     [
@@ -49,6 +57,11 @@ class RuntimeSettings:
     serve_max_loaded_models: int
     serve_flash_attention: bool
     serve_kv_cache_type: str
+    bedrock_enabled: bool
+    bedrock_aws_profile: str
+    bedrock_aws_region: str
+    bedrock_model_ids: tuple[str, ...]
+    bedrock_max_tokens: int
 
     @property
     def ollama_chat_url(self) -> str:
@@ -86,6 +99,15 @@ def default_runtime_settings() -> RuntimeSettings:
         serve_max_loaded_models=DEFAULT_SERVE_MAX_LOADED_MODELS,
         serve_flash_attention=DEFAULT_SERVE_FLASH_ATTENTION,
         serve_kv_cache_type=DEFAULT_SERVE_KV_CACHE_TYPE,
+        bedrock_enabled=False,
+        bedrock_aws_profile=os.environ.get("AWS_PROFILE", "").strip(),
+        bedrock_aws_region=(
+            os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or "us-east-1"
+        ).strip(),
+        bedrock_model_ids=tuple(DEFAULT_BEDROCK_MODEL_IDS),
+        bedrock_max_tokens=DEFAULT_BEDROCK_MAX_TOKENS,
     )
 
 
@@ -126,6 +148,22 @@ def normalize_ollama_base_url(raw: str) -> str:
     if not value.endswith("/api"):
         value = f"{value}/api"
     return value
+
+
+def normalize_bedrock_model_ids(raw: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        candidates = raw.replace(",", "\n").splitlines()
+    else:
+        candidates = [str(item) for item in raw]
+    models: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        model_id = candidate.strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        models.append(model_id)
+    return tuple(models)
 
 
 def normalize_quick_prompts(prompts: list[dict[str, str]] | list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -192,6 +230,32 @@ class SettingsStore:
                 self.settings.value("runtime/serve_kv_cache_type", defaults.serve_kv_cache_type, type=str)
                 or defaults.serve_kv_cache_type
             ).strip(),
+            bedrock_enabled=_coerce_bool(
+                self.settings.value("runtime/bedrock_enabled", defaults.bedrock_enabled),
+                defaults.bedrock_enabled,
+            ),
+            bedrock_aws_profile=(
+                self.settings.value("runtime/bedrock_aws_profile", defaults.bedrock_aws_profile, type=str)
+                or defaults.bedrock_aws_profile
+            ).strip(),
+            bedrock_aws_region=(
+                self.settings.value("runtime/bedrock_aws_region", defaults.bedrock_aws_region, type=str)
+                or defaults.bedrock_aws_region
+            ).strip(),
+            bedrock_model_ids=normalize_bedrock_model_ids(
+                self.settings.value(
+                    "runtime/bedrock_model_ids",
+                    "\n".join(defaults.bedrock_model_ids),
+                    type=str,
+                )
+            ) or defaults.bedrock_model_ids,
+            bedrock_max_tokens=max(
+                1,
+                _coerce_int(
+                    self.settings.value("runtime/bedrock_max_tokens", defaults.bedrock_max_tokens),
+                    defaults.bedrock_max_tokens,
+                ),
+            ),
         )
 
     def save_runtime_settings(self, runtime: RuntimeSettings) -> None:
@@ -204,6 +268,11 @@ class SettingsStore:
         self.settings.setValue("runtime/serve_max_loaded_models", runtime.serve_max_loaded_models)
         self.settings.setValue("runtime/serve_flash_attention", runtime.serve_flash_attention)
         self.settings.setValue("runtime/serve_kv_cache_type", runtime.serve_kv_cache_type)
+        self.settings.setValue("runtime/bedrock_enabled", bool(runtime.bedrock_enabled))
+        self.settings.setValue("runtime/bedrock_aws_profile", runtime.bedrock_aws_profile)
+        self.settings.setValue("runtime/bedrock_aws_region", runtime.bedrock_aws_region)
+        self.settings.setValue("runtime/bedrock_model_ids", "\n".join(runtime.bedrock_model_ids))
+        self.settings.setValue("runtime/bedrock_max_tokens", int(runtime.bedrock_max_tokens))
 
     def get_quick_prompts(self) -> OrderedDict[str, str]:
         raw = self.settings.value(QUICK_PROMPTS_ITEMS_KEY, "", type=str)

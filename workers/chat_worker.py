@@ -5,7 +5,7 @@ import threading
 from PySide6.QtCore import QThread, Signal
 
 from config import MODEL
-from ollama_client import stream_ollama
+from model_provider import stream_model
 
 
 class ChatWorker(QThread):
@@ -28,7 +28,7 @@ class ChatWorker(QThread):
         q: queue.Queue[str | None] = queue.Queue()
 
         def worker() -> None:
-            stream_ollama(self.messages, q, model=self.model, stop_event=self._stop_event)
+            stream_model(self.messages, q, model=self.model, stop_event=self._stop_event)
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
