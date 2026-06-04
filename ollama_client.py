@@ -83,7 +83,6 @@ def build_title_messages(
         "- 2 to 4 words.\n"
         "- Plain text only.\n"
         "- Give just enough context to recognize the topic.\n"
-        "- No quotes, markdown, prefixes, trailing punctuation, or filler words like chat/conversation/help.\n"
         f"- Source context: {source}."
     )
     return [{"role": "system", "content": prompt}, *context]

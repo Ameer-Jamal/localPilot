@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, Signal
 
 from config import MODEL
-from ollama_client import generate_chat_title
+from model_provider import generate_model_chat_title
 
 
 class TitleWorker(QThread):
@@ -24,7 +24,7 @@ class TitleWorker(QThread):
         self.file_path = file_path
 
     def run(self) -> None:
-        title = generate_chat_title(
+        title = generate_model_chat_title(
             self.messages,
             model=self.model,
             file_name=self.file_name,

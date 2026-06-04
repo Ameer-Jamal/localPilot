@@ -7,6 +7,7 @@ import subprocess
 import time
 
 from PySide6.QtCore import Qt, QTimer, Signal, QSettings
+from PySide6.QtGui import QColor, QFont, QPalette, QPen
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QWidget,
@@ -18,6 +19,11 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QMessageBox,
+    QStyle,
+    QStyleOptionComboBox,
+    QStylePainter,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 from markdown_it import MarkdownIt
 
@@ -31,7 +37,8 @@ from chat_logic import (
 )
 from config import APP_NAME, APP_ORG, MODEL
 from history_store import HistoryStore
-from ollama_client import remember_local_server_process, stop_local_ollama_server, warm_up_model
+from model_provider import available_bedrock_models, display_model_name, is_bedrock_model, provider_model_id, warm_up_selected_model
+from ollama_client import remember_local_server_process, stop_local_ollama_server
 from resources.html_template import HTML_TEMPLATE
 from settings_store import (
     SettingsStore,
@@ -80,6 +87,69 @@ from transcript_render import block_has_role, render_code_context_block, render_
 
 md = MarkdownIt()
 LEGACY_SETTINGS_ORG = "AskAboutSelection"
+BEDROCK_ACCENT = QColor("#56b6a7")
+DEFAULT_COMBO_COLOR = QColor("#eef2f6")
+SECTION_TEXT_COLOR = QColor("#8ea0b5")
+ITEM_KIND_ROLE = Qt.UserRole + 1
+MODEL_VALUE_ROLE = Qt.UserRole + 2
+ITEM_KIND_HEADER = "header"
+ITEM_KIND_MODEL = "model"
+
+
+class ModelComboDelegate(QStyledItemDelegate):
+    def paint(self, painter, option: QStyleOptionViewItem, index) -> None:
+        view_option = QStyleOptionViewItem(option)
+        self.initStyleOption(view_option, index)
+        kind = index.data(ITEM_KIND_ROLE)
+        if kind == ITEM_KIND_HEADER:
+            view_option.font = QFont(view_option.font)
+            view_option.font.setBold(True)
+            view_option.palette.setColor(QPalette.Text, SECTION_TEXT_COLOR)
+            view_option.palette.setColor(QPalette.WindowText, SECTION_TEXT_COLOR)
+            view_option.state &= ~QStyle.State_Selected
+            view_option.state &= ~QStyle.State_HasFocus
+        elif is_bedrock_model(str(index.data(MODEL_VALUE_ROLE) or "")):
+            view_option.palette.setColor(QPalette.Text, BEDROCK_ACCENT)
+            view_option.palette.setColor(QPalette.WindowText, BEDROCK_ACCENT)
+        super().paint(painter, view_option, index)
+        if kind == ITEM_KIND_HEADER and index.row() > 0:
+            painter.save()
+            painter.setPen(QPen(QColor("#313b45")))
+            painter.drawLine(
+                view_option.rect.left() + 8,
+                view_option.rect.top(),
+                view_option.rect.right() - 8,
+                view_option.rect.top(),
+            )
+            painter.restore()
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> object:
+        size = super().sizeHint(option, index)
+        kind = index.data(ITEM_KIND_ROLE)
+        if kind == ITEM_KIND_HEADER:
+            size.setHeight(max(size.height(), 34))
+        else:
+            size.setHeight(max(size.height(), 28))
+        return size
+
+
+class ModelComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current_text_color = DEFAULT_COMBO_COLOR
+
+    def set_current_text_color(self, color: QColor) -> None:
+        self._current_text_color = color
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        option.palette.setColor(QPalette.ButtonText, self._current_text_color)
+        option.palette.setColor(QPalette.Text, self._current_text_color)
+        painter = QStylePainter(self)
+        painter.drawComplexControl(QStyle.CC_ComboBox, option)
+        painter.drawControl(QStyle.CE_ComboBoxLabel, option)
 
 
 class SessionWidget(QWidget):
@@ -150,8 +220,9 @@ class SessionWidget(QWidget):
         self.model_lbl.setProperty("role", "muted")
         self.model_lbl.setText(LABEL_MODEL)
 
-        self.model_combo = QComboBox()
-        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        self.model_combo = ModelComboBox()
+        self.model_combo.setItemDelegate(ModelComboDelegate(self.model_combo))
+        self.model_combo.currentIndexChanged.connect(lambda _index: self._on_model_changed(self._selected_model()))
 
         # Refresh button
         self.refresh_btn = self._mk_btn(LABEL_REFRESH, self._setup_model_selector, variant="subtle")
@@ -239,23 +310,38 @@ class SessionWidget(QWidget):
 
     def _get_current_available_models(self) -> list[str]:
         """
-        Fetches the current list of Ollama models by calling the function
-        from config.py.
+        Fetches available local Ollama models and appends enabled Bedrock models.
         """
         self._runtime_settings = self._settings_store.get_runtime_settings()
-        return fetch_ollama_models(self._runtime_settings)
+        return [
+            *fetch_ollama_models(self._runtime_settings),
+            *available_bedrock_models(self._runtime_settings),
+        ]
 
     def _setup_model_selector(self):
         """
         Configures the model combobox and refresh button based on currently
         available Ollama models.
         """
-        current_model_list = self._get_current_available_models()
+        self._runtime_settings = self._settings_store.get_runtime_settings()
+        ollama_model_list = fetch_ollama_models(self._runtime_settings)
+        current_model_list = [
+            *ollama_model_list,
+            *available_bedrock_models(self._runtime_settings),
+        ]
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
 
         if current_model_list:
-            self.model_combo.addItems(current_model_list)
+            if ollama_model_list:
+                self._add_model_section("Ollama Models")
+                for model in ollama_model_list:
+                    self._add_model_item(model, label=model)
+            bedrock_models = available_bedrock_models(self._runtime_settings)
+            if bedrock_models:
+                self._add_model_section("Bedrock Models")
+                for model in bedrock_models:
+                    self._add_model_item(model, label=provider_model_id(model))
             saved_model = get_saved_chat_model(self._settings)
             if not saved_model:
                 saved_model = QSettings(LEGACY_SETTINGS_ORG, APP_NAME).value("chat/model", MODEL, type=str)
@@ -265,14 +351,16 @@ class SessionWidget(QWidget):
                 saved_model=saved_model,
                 default_model=MODEL,
             )
-            self.model_combo.setCurrentText(preferred)
+            preferred_index = self.model_combo.findData(preferred)
+            self.model_combo.setCurrentIndex(preferred_index if preferred_index >= 0 else 0)
             self.model_combo.setEnabled(True)
-            self._on_model_changed(self.model_combo.currentText())
+            self._on_model_changed(self._selected_model())
+            server_up = is_ollama_running(self._runtime_settings) if not ollama_model_list else True
             self.status.showMessage(STATUS_READY)
-            self.refresh_btn.setVisible(False)
-            self.run_ollama_btn.setVisible(False)
-            self.stop_ollama_btn.setVisible(True)
-            self.install_model_btn.setVisible(False)
+            self.refresh_btn.setVisible(not ollama_model_list)
+            self.run_ollama_btn.setVisible(not ollama_model_list and not server_up)
+            self.stop_ollama_btn.setVisible(bool(ollama_model_list) or server_up)
+            self.install_model_btn.setVisible(not ollama_model_list and server_up)
         else:
             server_up = is_ollama_running(self._runtime_settings)
             self.model_combo.addItem(NO_OLLAMA_MODELS_FOUND)
@@ -286,6 +374,7 @@ class SessionWidget(QWidget):
             self.run_ollama_btn.setVisible(not server_up)
             self.stop_ollama_btn.setVisible(server_up)
             self.install_model_btn.setVisible(server_up)
+        self._sync_model_combo_accent()
         self.model_combo.blockSignals(False)
 
     def _run_ollama_server(self):
@@ -339,7 +428,7 @@ class SessionWidget(QWidget):
     def _begin_ollama_refresh(self, *, attempts: int = 20, delay_ms: int = 1500):
         def _poll(remaining: int) -> None:
             self._setup_model_selector()
-            if self._get_current_available_models() or remaining <= 1:
+            if fetch_ollama_models(self._runtime_settings) or remaining <= 1:
                 return
             QTimer.singleShot(delay_ms, lambda: _poll(remaining - 1))
 
@@ -406,7 +495,7 @@ class SessionWidget(QWidget):
     def warm_up(self):
         model = self._selected_model()
         if model:
-            warm_up_model(model)
+            warm_up_selected_model(model)
 
     # conversation plumbing
     def _build_system_message(self):
@@ -443,7 +532,8 @@ class SessionWidget(QWidget):
         )
 
     def _selected_model(self) -> str:
-        model = self.model_combo.currentText().strip()
+        data = self.model_combo.currentData(MODEL_VALUE_ROLE)
+        model = str(data).strip() if data is not None else ""
         return "" if not model or model == NO_OLLAMA_MODELS_FOUND else model
 
     def display_title(self) -> str:
@@ -511,7 +601,7 @@ class SessionWidget(QWidget):
         self._render_buf = []
         self._assistant_persisted = False
         self._generation_stopped = False
-        self.status.showMessage(status_generating(model))
+        self.status.showMessage(status_generating(display_model_name(model)))
         self._start_ts = time.time()
         self._chars = 0
         self._append_thinking_block()
@@ -535,8 +625,30 @@ class SessionWidget(QWidget):
         self._settings.setValue("chat/model", model)
         self._preferred_model = model
         self._session_model = model
+        self._sync_model_combo_accent()
         if self.session_id is not None and model and model != NO_OLLAMA_MODELS_FOUND:
             self.history_store.update_session_model(self.session_id, model)
+
+    def _sync_model_combo_accent(self) -> None:
+        text_color = BEDROCK_ACCENT if is_bedrock_model(self._selected_model()) else DEFAULT_COMBO_COLOR
+        self.model_combo.set_current_text_color(text_color)
+
+    def _add_model_section(self, title: str) -> None:
+        self.model_combo.addItem(title, "")
+        item_index = self.model_combo.count() - 1
+        self.model_combo.setItemData(item_index, ITEM_KIND_HEADER, ITEM_KIND_ROLE)
+        self.model_combo.setItemData(item_index, "", MODEL_VALUE_ROLE)
+        model = self.model_combo.model()
+        if hasattr(model, "item"):
+            item = model.item(item_index)
+            if item is not None:
+                item.setEnabled(False)
+
+    def _add_model_item(self, model: str, *, label: str) -> None:
+        self.model_combo.addItem(label, model)
+        item_index = self.model_combo.count() - 1
+        self.model_combo.setItemData(item_index, ITEM_KIND_MODEL, ITEM_KIND_ROLE)
+        self.model_combo.setItemData(item_index, model, MODEL_VALUE_ROLE)
 
     def _on_error(self, msg: str):
         if not should_handle_worker_signal(self._worker, self.sender()):
@@ -558,8 +670,8 @@ class SessionWidget(QWidget):
         self._worker = None
         elapsed = time.time() - self._start_ts
         cps = int(self._chars / elapsed) if elapsed > 0 else 0
-        model = getattr(self, "_active_model", self.model_combo.currentText())
-        self.status.showMessage(status_done(elapsed, self._chars, cps, model))
+        model = getattr(self, "_active_model", self._selected_model())
+        self.status.showMessage(status_done(elapsed, self._chars, cps, display_model_name(model)))
 
     def _finalize_assistant_message(self):
         if self._assistant_persisted:

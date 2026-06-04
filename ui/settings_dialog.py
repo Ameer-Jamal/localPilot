@@ -5,6 +5,7 @@ from collections import OrderedDict
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFrame,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -22,6 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from aws_bedrock_discovery import (
+    available_aws_profiles,
+    available_bedrock_regions,
+    discover_bedrock_model_ids,
+    login_aws_profile,
+)
 from config import APP_AUTHOR_NAME, APP_DISPLAY_NAME
 from settings_store import DEFAULT_QUICK_PROMPTS, HistorySettings, RuntimeSettings, default_runtime_settings
 
@@ -114,15 +122,26 @@ class SettingsDialog(QDialog):
                 background: #2d3640;
                 color: #ffffff;
             }
-            QLineEdit, QSpinBox, QDoubleSpinBox, QTableWidget {
+            QComboBox, QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QTableWidget {
                 background: #14181d;
                 color: #eef2f6;
                 border: 1px solid #313b45;
                 border-radius: 8px;
                 padding: 8px 10px;
             }
-            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTableWidget:focus {
+            QComboBox:focus, QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTableWidget:focus {
                 border-color: #56b6a7;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background: #1f252c;
+                color: #eef2f6;
+                border: 1px solid #313b45;
+                selection-background-color: #2f8f81;
+                selection-color: #f8fffd;
             }
             QCheckBox {
                 spacing: 8px;
@@ -217,7 +236,7 @@ class SettingsDialog(QDialog):
         title = QLabel("Settings", header)
         title.setProperty("role", "title")
         body = QLabel(
-            f"Tune how {APP_DISPLAY_NAME} talks to Ollama and manage the quick actions that appear above every chat.",
+            f"Tune how {APP_DISPLAY_NAME} talks to models and manage the quick actions that appear above every chat.",
             header,
         )
         body.setWordWrap(True)
@@ -275,6 +294,14 @@ class SettingsDialog(QDialog):
                 "Set the default creativity, context size, and how long Ollama should keep models warm between requests.",
                 runtime,
                 rows_builder=self._build_generation_rows,
+            )
+        )
+        layout.addWidget(
+            self._build_form_card(
+                "AWS Bedrock",
+                "Enable cloud models through AWS Bedrock. Credentials are resolved by the AWS SDK from your configured profile, SSO session, or environment.",
+                runtime,
+                rows_builder=self._build_bedrock_rows,
             )
         )
         layout.addWidget(
@@ -459,6 +486,121 @@ class SettingsDialog(QDialog):
             self.kv_cache_edit,
             parent,
         )
+
+    def _build_bedrock_rows(self, rows, runtime: RuntimeSettings, parent: QWidget) -> None:
+        self.bedrock_enabled_check = QCheckBox("Enable AWS Bedrock models", parent)
+        self.bedrock_enabled_check.setChecked(runtime.bedrock_enabled)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "Bedrock access",
+                "When enabled, configured Bedrock model IDs appear in the model dropdown.",
+                parent,
+            ),
+            self.bedrock_enabled_check,
+            parent,
+        )
+
+        self.bedrock_profile_combo = QComboBox(parent)
+        self.bedrock_profile_combo.setEditable(False)
+        self._populate_profile_combo(runtime.bedrock_aws_profile)
+        profile_row = QWidget(parent)
+        profile_layout = QHBoxLayout(profile_row)
+        profile_layout.setContentsMargins(0, 0, 0, 0)
+        profile_layout.setSpacing(8)
+        profile_layout.addWidget(self.bedrock_profile_combo, 1)
+        refresh_profiles_btn = QPushButton("Refresh Profiles", parent)
+        refresh_profiles_btn.clicked.connect(self._refresh_bedrock_profiles)
+        profile_layout.addWidget(refresh_profiles_btn)
+        login_btn = QPushButton("AWS SSO Login", parent)
+        login_btn.clicked.connect(self._login_bedrock_profile)
+        profile_layout.addWidget(login_btn)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "AWS profile",
+                "Choose a configured AWS profile, or leave blank to use the default AWS SDK credential chain.",
+                parent,
+            ),
+            profile_row,
+            parent,
+        )
+
+        self.bedrock_region_combo = QComboBox(parent)
+        self.bedrock_region_combo.setEditable(False)
+        self._populate_region_combo(runtime.bedrock_aws_region)
+        region_row = QWidget(parent)
+        region_layout = QHBoxLayout(region_row)
+        region_layout.setContentsMargins(0, 0, 0, 0)
+        region_layout.setSpacing(8)
+        region_layout.addWidget(self.bedrock_region_combo, 1)
+        refresh_regions_btn = QPushButton("Refresh Regions", parent)
+        refresh_regions_btn.clicked.connect(self._refresh_bedrock_regions)
+        region_layout.addWidget(refresh_regions_btn)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "AWS region",
+                "Region used for Bedrock Runtime requests.",
+                parent,
+            ),
+            region_row,
+            parent,
+        )
+
+        self.bedrock_models_edit = QPlainTextEdit(parent)
+        self.bedrock_models_edit.setPlainText("\n".join(runtime.bedrock_model_ids))
+        self.bedrock_models_edit.setPlaceholderText("us.anthropic.claude-sonnet-4-20250514-v1:0")
+        self.bedrock_models_edit.setMinimumHeight(96)
+        models_row = QWidget(parent)
+        models_layout = QVBoxLayout(models_row)
+        models_layout.setContentsMargins(0, 0, 0, 0)
+        models_layout.setSpacing(8)
+        models_layout.addWidget(self.bedrock_models_edit)
+        refresh_models_btn = QPushButton("Refresh Bedrock Models", parent)
+        refresh_models_btn.clicked.connect(self._refresh_bedrock_models)
+        models_layout.addWidget(refresh_models_btn, 0, Qt.AlignLeft)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "Bedrock model IDs",
+                "Refresh to list inference profiles for the selected profile and region, or edit the list manually.",
+                parent,
+            ),
+            models_row,
+            parent,
+        )
+
+        self.bedrock_status_label = QLabel("Choose a profile and region, then refresh models.", parent)
+        self.bedrock_status_label.setWordWrap(True)
+        self.bedrock_status_label.setProperty("role", "section_body")
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "AWS status",
+                "Connection, login, and model discovery details appear here.",
+                parent,
+            ),
+            self.bedrock_status_label,
+            parent,
+        )
+
+        self.bedrock_max_tokens_spin = NoWheelSpinBox(parent)
+        self.bedrock_max_tokens_spin.setFocusPolicy(Qt.StrongFocus)
+        self.bedrock_max_tokens_spin.setRange(1, 200000)
+        self.bedrock_max_tokens_spin.setValue(runtime.bedrock_max_tokens)
+        self._add_setting_row(
+            rows,
+            self._make_form_label(
+                "Maximum output tokens",
+                "Caps the length of each Bedrock response.",
+                parent,
+            ),
+            self.bedrock_max_tokens_spin,
+            parent,
+        )
+        self.bedrock_profile_combo.currentIndexChanged.connect(self._on_bedrock_endpoint_changed)
+        self.bedrock_region_combo.currentIndexChanged.connect(self._on_bedrock_endpoint_changed)
 
     def _build_quick_prompts_tab(self, quick_prompts: OrderedDict[str, str]) -> QWidget:
         content = QWidget(self)
@@ -704,6 +846,12 @@ class SettingsDialog(QDialog):
         self.max_loaded_spin.setValue(defaults.serve_max_loaded_models)
         self.flash_attention_check.setChecked(defaults.serve_flash_attention)
         self.kv_cache_edit.setText(defaults.serve_kv_cache_type)
+        self.bedrock_enabled_check.setChecked(defaults.bedrock_enabled)
+        self._populate_profile_combo(defaults.bedrock_aws_profile)
+        self._populate_region_combo(defaults.bedrock_aws_region)
+        self.bedrock_models_edit.setPlainText("\n".join(defaults.bedrock_model_ids))
+        self.bedrock_max_tokens_spin.setValue(defaults.bedrock_max_tokens)
+        self.bedrock_status_label.setText("Restored AWS Bedrock defaults.")
 
     def get_runtime_settings(self) -> RuntimeSettings:
         return RuntimeSettings(
@@ -716,6 +864,15 @@ class SettingsDialog(QDialog):
             serve_max_loaded_models=self.max_loaded_spin.value(),
             serve_flash_attention=self.flash_attention_check.isChecked(),
             serve_kv_cache_type=self.kv_cache_edit.text().strip(),
+            bedrock_enabled=self.bedrock_enabled_check.isChecked(),
+            bedrock_aws_profile=self._combo_value(self.bedrock_profile_combo),
+            bedrock_aws_region=self._combo_value(self.bedrock_region_combo),
+            bedrock_model_ids=tuple(
+                model.strip()
+                for model in self.bedrock_models_edit.toPlainText().replace(",", "\n").splitlines()
+                if model.strip()
+            ),
+            bedrock_max_tokens=self.bedrock_max_tokens_spin.value(),
         )
 
     def get_quick_prompts(self) -> list[dict[str, str]]:
@@ -743,3 +900,68 @@ class SettingsDialog(QDialog):
 
     def should_clear_history(self) -> bool:
         return self._clear_history_requested
+
+    def _combo_value(self, combo: QComboBox) -> str:
+        data = combo.currentData()
+        if isinstance(data, str):
+            return data.strip()
+        return combo.currentText().strip()
+
+    def _populate_combo(self, combo: QComboBox, values: list[tuple[str, str]], selected: str) -> None:
+        current = selected.strip()
+        combo.blockSignals(True)
+        combo.clear()
+        seen: set[str] = set()
+        for label, value in values:
+            cleaned_value = (value or "").strip()
+            if cleaned_value in seen:
+                continue
+            seen.add(cleaned_value)
+            combo.addItem(label, cleaned_value)
+        if current and current not in seen:
+            combo.insertItem(0, current, current)
+        index = combo.findData(current)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+        elif combo.count():
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    def _populate_profile_combo(self, selected: str) -> None:
+        values = [("(Default credential chain)", "")]
+        values.extend((profile, profile) for profile in available_aws_profiles())
+        self._populate_combo(self.bedrock_profile_combo, values, selected)
+
+    def _populate_region_combo(self, selected: str) -> None:
+        values = [(region, region) for region in available_bedrock_regions()]
+        self._populate_combo(self.bedrock_region_combo, values, selected)
+
+    def _refresh_bedrock_profiles(self) -> None:
+        current = self._combo_value(self.bedrock_profile_combo)
+        self._populate_profile_combo(current)
+        self.bedrock_status_label.setText("Refreshed AWS profiles.")
+
+    def _refresh_bedrock_regions(self) -> None:
+        current = self._combo_value(self.bedrock_region_combo)
+        self._populate_region_combo(current)
+        self.bedrock_status_label.setText("Refreshed Bedrock regions.")
+
+    def _refresh_bedrock_models(self) -> None:
+        result = discover_bedrock_model_ids(
+            self._combo_value(self.bedrock_profile_combo),
+            self._combo_value(self.bedrock_region_combo),
+        )
+        self.bedrock_models_edit.setPlainText("\n".join(result.model_ids))
+        self.bedrock_status_label.setText(result.status_message)
+
+    def _on_bedrock_endpoint_changed(self, _index: int) -> None:
+        self._refresh_bedrock_models()
+
+    def _login_bedrock_profile(self) -> None:
+        success, message = login_aws_profile(
+            self._combo_value(self.bedrock_profile_combo),
+            self._combo_value(self.bedrock_region_combo),
+        )
+        self.bedrock_status_label.setText(message)
+        if success:
+            self._refresh_bedrock_models()
